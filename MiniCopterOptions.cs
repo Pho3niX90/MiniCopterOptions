@@ -3,21 +3,21 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.0.5")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         #region Prefab Modifications
 
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
-        private readonly string storageLargePrefab = "assets/content/vehicles/boats/rhib/subents/rhib_storage.prefab";
+        private readonly string storageLargePrefab = "assets/prefabs/deployable/woodenbox/woodbox_deployed.prefab";
 
         void AddLargeStorageBox(MiniCopter copter) {
             //sides,negative left | up and down
             if (config.storageLargeContainers == 1) {
                 AddStorageBox(copter, storageLargePrefab, new Vector3(0.0f, 0.05f, -1.05f));
             } else if (config.storageLargeContainers >= 2) {
-                AddStorageBox(copter, storageLargePrefab, new Vector3(-0.5f, 0.05f, -1.05f));
-                AddStorageBox(copter, storageLargePrefab, new Vector3(0.5f, 0.05f, -1.05f));
+                AddStorageBox(copter, storageLargePrefab, new Vector3(-0.48f, 0.04f, -1.05f), Quaternion.Euler(0, 180f, 0));
+                AddStorageBox(copter, storageLargePrefab, new Vector3(0.48f, 0.04f, -1.05f), Quaternion.Euler(0, 180f, 0));
             }
         }
 
@@ -26,17 +26,43 @@ namespace Oxide.Plugins {
         }
 
         void AddSideStorageBoxes(MiniCopter copter) {
-            AddStorageBox(copter, storagePrefab, new Vector3(0.6f, 0.3f, -0.35f));
-            AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.3f, -0.35f));
+            AddStorageBox(copter, storagePrefab, new Vector3(0.6f, 0.24f, -0.35f));
+            AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
         }
 
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) {
-            BaseEntity box = GameManager.server.CreateEntity(prefab, copter.transform.position) as BaseEntity;
+            AddStorageBox(copter, prefab, position, new Quaternion());
+        }
+        void AddStorageBox(MiniCopter copter, string prefab, Vector3 position, Quaternion q) {
+
+            StorageContainer box = GameManager.server.CreateEntity(prefab, copter.transform.position, q) as StorageContainer;
+
+            if (prefab.Equals(storageLargePrefab) && config.largeStorageLockable) {
+                box.isLockable = true;
+                box.panelName = GetPanelName(config.largeStorageSize);
+            }
 
             box.SetParent(copter);
             box.Spawn();
             box.transform.localPosition = position;
+
+            if (prefab.Equals(storageLargePrefab) && config.largeStorageLockable) {
+                box.inventory.capacity = config.largeStorageSize;
+            }
+
             box.SendNetworkUpdateImmediate(true);
+        }
+
+        string GetPanelName(int capacity) {
+            if (capacity <= 6) {
+                return "smallstash";
+            } else if (capacity > 6 && capacity <= 12) {
+                return "smallwoodbox";
+            } else if (capacity > 12 && capacity <= 30) {
+                return "largewoodbox";
+            } else {
+                return "genericlarge";
+            }
         }
 
         void RestoreMiniCopter(MiniCopter copter, bool removeStorage = false) {
@@ -93,9 +119,10 @@ namespace Oxide.Plugins {
                 // Nab the default values off the first minicopter.
                 if (copterDefaults.Equals(default(MiniCopterDefaults))) {
                     StoreMiniCopterDefaults(copter);
+                    break;
                 }
 
-                ModifyMiniCopter(copter, config.reloadStorage);
+                //ModifyMiniCopter(copter, config.reloadStorage);
             }
         }
 
@@ -106,6 +133,14 @@ namespace Oxide.Plugins {
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers. 
             ModifyMiniCopter(minicopter, true);
+        }
+
+        void OnEntityKill(BaseNetworkable entity) {
+            if (!config.dropStorage || !entity.ShortPrefabName.Equals("minicopter.entity")) return;
+            StorageContainer[] containers = entity.GetComponentsInChildren<StorageContainer>();
+            foreach (StorageContainer container in containers) {
+                container.DropItems();
+            }
         }
 
         void Unload() {
@@ -129,6 +164,9 @@ namespace Oxide.Plugins {
             public int storageLargeContainers = 0;
             public bool restoreDefaults = true;
             public bool reloadStorage = false;
+            public bool dropStorage = true;
+            public bool largeStorageLockable = true;
+            public int largeStorageSize = 42;
 
             // Plugin reference
             private MiniCopterOptions plugin;
@@ -145,6 +183,9 @@ namespace Oxide.Plugins {
                 GetConfig(ref storageLargeContainers, "Large Storage Containers");
                 GetConfig(ref restoreDefaults, "Restore Defaults");
                 GetConfig(ref reloadStorage, "Reload Storage");
+                GetConfig(ref dropStorage, "Drop Storage Loot On Death");
+                GetConfig(ref largeStorageLockable, "Large Storage Lockable");
+                GetConfig(ref largeStorageSize, "Large Storage Size (Max 42)");
 
                 plugin.SaveConfig();
             }
@@ -192,6 +233,13 @@ namespace Oxide.Plugins {
             } else if (config.storageLargeContainers < 0) {
                 PrintWarning($"Large Storage Containers cannot be a negative value, setting to 0.");
                 config.storageLargeContainers = 0;
+            }
+
+            if(config.largeStorageSize > 42) {
+                PrintWarning($"Large Storage Containers Capacity configuration value {config.largeStorageSize} exceeds the maximum, setting to 42.");
+                config.largeStorageSize = 42;
+            } else if (config.largeStorageSize < 6) {
+                PrintWarning($"Storage Containers Capacity cannot be a smaller than 6, setting to 6.");
             }
         }
 
