@@ -3,21 +3,28 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.1")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         #region Prefab Modifications
 
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
-        private readonly string storageLargePrefab = "assets/prefabs/deployable/woodenbox/woodbox_deployed.prefab";
+        private readonly string storageLargePrefab = "assets/content/vehicles/boats/rhib/subents/rhib_storage.prefab";
+        private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
+        private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
+
+        void OnEntityDismounted(BaseMountable entity, BasePlayer player) {
+            if (config.flyHackPause > 0 && entity is MiniCopter)
+                player.PauseFlyHackDetection(config.flyHackPause);
+        }
 
         void AddLargeStorageBox(MiniCopter copter) {
             //sides,negative left | up and down
             if (config.storageLargeContainers == 1) {
-                AddStorageBox(copter, storageLargePrefab, new Vector3(0.0f, 0.05f, -1.05f));
+                AddStorageBox(copter, storageLargePrefab, new Vector3(0.0f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
             } else if (config.storageLargeContainers >= 2) {
-                AddStorageBox(copter, storageLargePrefab, new Vector3(-0.48f, 0.04f, -1.05f), Quaternion.Euler(0, 180f, 0));
-                AddStorageBox(copter, storageLargePrefab, new Vector3(0.48f, 0.04f, -1.05f), Quaternion.Euler(0, 180f, 0));
+                AddStorageBox(copter, storageLargePrefab, new Vector3(-0.48f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
+                AddStorageBox(copter, storageLargePrefab, new Vector3(0.48f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
             }
         }
 
@@ -42,15 +49,88 @@ namespace Oxide.Plugins {
                 box.panelName = GetPanelName(config.largeStorageSize);
             }
 
-            box.SetParent(copter);
             box.Spawn();
+            //box.prefabAttribute.serverside = true;
+            //UnityEngine.Object.Destroy(box.GetComponent<DestroyOnGroundMissing>());
+            box.SetParent(copter);
             box.transform.localPosition = position;
 
             if (prefab.Equals(storageLargePrefab) && config.largeStorageLockable) {
                 box.inventory.capacity = config.largeStorageSize;
             }
 
+
             box.SendNetworkUpdateImmediate(true);
+        }
+
+        void AddTurret(MiniCopter copter) {
+            AutoTurret aturret = GameManager.server.CreateEntity(autoturretPrefab, copter.transform.position) as AutoTurret;
+            aturret.Spawn();
+            aturret.pickup.enabled = false;
+            aturret.sightRange = 40f;
+            UnityEngine.Object.Destroy(aturret.GetComponent<DestroyOnGroundMissing>());
+            aturret.SetParent(copter);
+            aturret.transform.localPosition = new Vector3(0, 0, 2.47f);
+            aturret.transform.localRotation = Quaternion.Euler(0, 0, 0);
+            ProtoBuf.PlayerNameID pnid = new ProtoBuf.PlayerNameID();
+            if (copter.OwnerID != 0) {
+                pnid.userid = copter.OwnerID;
+                aturret.authorizedPlayers.Add(pnid);
+            }
+            aturret.SendNetworkUpdate();
+
+            timer.Once(0.1f, () => {
+                ElectricSwitch aSwitch = aturret.GetComponentInChildren<ElectricSwitch>();
+                aSwitch = GameManager.server.CreateEntity(switchPrefab, aturret.transform.position)?.GetComponent<ElectricSwitch>();
+                if (aSwitch == null) return;
+                aSwitch.pickup.enabled = false;
+                aSwitch.SetParent(aturret);
+                aSwitch.transform.localPosition = new Vector3(0f, -0.65f, 0.325f);
+                aSwitch.transform.localRotation = Quaternion.Euler(0, 0, 0);
+                aSwitch.Spawn();
+                UnityEngine.Object.Destroy(aSwitch.GetComponent<DestroyOnGroundMissing>());
+                UnityEngine.Object.Destroy(aSwitch.GetComponent<GroundWatch>());
+                aturret.inputs[0].connectedTo.Set(aSwitch);
+                aturret.inputs[0].connectedToSlot = 0;
+                aturret.inputs[0].connectedTo.Init();
+                aSwitch.outputs[0].connectedTo.Set(aturret);
+                aSwitch.outputs[0].connectedToSlot = 0;
+                aSwitch.outputs[0].connectedTo.Init();
+                aSwitch.MarkDirtyForceUpdateOutputs();
+                aSwitch.UpdateHasPower(12, 0);
+                aSwitch.SendNetworkUpdate();
+            });
+        }
+
+        void OnItemDeployed(Deployer deployer, BaseEntity entity) {
+            if (entity.GetParentEntity().ShortPrefabName.Equals("minicopter.entity")) {
+                CodeLock cLock = entity.GetComponentInChildren<CodeLock>();
+                cLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
+                cLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
+                cLock.SendNetworkUpdateImmediate();
+            }
+        }
+
+
+        private object OnSwitchToggle(ElectricSwitch eswitch, BasePlayer player) {
+            BaseEntity parent = eswitch.GetParentEntity();
+            if (parent.PrefabName.Equals(autoturretPrefab)) {
+                AutoTurret turret = parent as AutoTurret;
+                if (!eswitch.IsOn())
+                    PowerTurretOn(turret);
+                else
+                    PowerTurretOff(turret);
+            }
+            return null;
+        }
+
+        public void PowerTurretOn(AutoTurret turret) {
+            turret.SetFlag(BaseEntity.Flags.Reserved8, true);
+            turret.InitiateStartup();
+        }
+        private void PowerTurretOff(AutoTurret turret) {
+            turret.SetFlag(BaseEntity.Flags.Reserved8, false);
+            turret.InitiateShutdown();
         }
 
         string GetPanelName(int capacity) {
@@ -85,8 +165,10 @@ namespace Oxide.Plugins {
             copter.liftFraction = config.liftFraction;
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
 
+            if (config.autoturret && copter.GetComponentInChildren<AutoTurret>() == null) {
+                AddTurret(copter);
+            }
             if (storage) AddLargeStorageBox(copter);
-
             if (storage)
                 switch (config.storageContainers) {
                     case 1:
@@ -141,6 +223,10 @@ namespace Oxide.Plugins {
             foreach (StorageContainer container in containers) {
                 container.DropItems();
             }
+            AutoTurret[] turrets = entity.GetComponentsInChildren<AutoTurret>();
+            foreach (AutoTurret turret in turrets) {
+                turret.DropItems();
+            }
         }
 
         void Unload() {
@@ -148,6 +234,8 @@ namespace Oxide.Plugins {
                 RestoreMiniCopter(copter, config.reloadStorage);
             }
         }
+
+
 
         #endregion
         #region Configuration
@@ -167,6 +255,8 @@ namespace Oxide.Plugins {
             public bool dropStorage = true;
             public bool largeStorageLockable = true;
             public int largeStorageSize = 42;
+            public int flyHackPause = 4;
+            public bool autoturret = true;
 
             // Plugin reference
             private MiniCopterOptions plugin;
@@ -186,6 +276,8 @@ namespace Oxide.Plugins {
                 GetConfig(ref dropStorage, "Drop Storage Loot On Death");
                 GetConfig(ref largeStorageLockable, "Large Storage Lockable");
                 GetConfig(ref largeStorageSize, "Large Storage Size (Max 42)");
+                GetConfig(ref flyHackPause, "Seconds to pause flyhack when dismount from heli.");
+                GetConfig(ref autoturret, "Add auto turret to heli");
 
                 plugin.SaveConfig();
             }
@@ -235,7 +327,7 @@ namespace Oxide.Plugins {
                 config.storageLargeContainers = 0;
             }
 
-            if(config.largeStorageSize > 42) {
+            if (config.largeStorageSize > 42) {
                 PrintWarning($"Large Storage Containers Capacity configuration value {config.largeStorageSize} exceeds the maximum, setting to 42.");
                 config.largeStorageSize = 42;
             } else if (config.largeStorageSize < 6) {
@@ -244,5 +336,6 @@ namespace Oxide.Plugins {
         }
 
         #endregion
+
     }
 }
