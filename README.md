@@ -14,6 +14,7 @@ The default configuration mimics the default Rust values.
 
 ```json
 {
+  "Add auto turret to heli": true,
   "Drop Storage Loot On Death": true, // drops storage loot when heli is destroyed
   "Fuel per Second": 0.25,
   "Large Storage Containers": 2, //how many large containers should there be (max 2)
@@ -24,6 +25,7 @@ The default configuration mimics the default Rust values.
   "Reload Storage": false,
   "Restore Defaults": true,
   "Roll Torque Scale": 200.0,
+  "Seconds to pause flyhack when dismount from heli.": 4,
   "Storage Containers": 3, // how many small containers there should be, max 3
   "Yaw Torque Scale": 400.0
 }
