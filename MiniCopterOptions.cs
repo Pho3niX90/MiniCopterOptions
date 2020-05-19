@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.2")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.3")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         #region Prefab Modifications
@@ -67,7 +67,7 @@ namespace Oxide.Plugins {
             AutoTurret aturret = GameManager.server.CreateEntity(autoturretPrefab, copter.transform.position) as AutoTurret;
             aturret.Spawn();
             aturret.pickup.enabled = false;
-            aturret.sightRange = 40f;
+            aturret.sightRange = config.turretRange;
             UnityEngine.Object.Destroy(aturret.GetComponent<DestroyOnGroundMissing>());
             aturret.SetParent(copter);
             aturret.transform.localPosition = new Vector3(0, 0, 2.47f);
@@ -75,11 +75,12 @@ namespace Oxide.Plugins {
             ProtoBuf.PlayerNameID pnid = new ProtoBuf.PlayerNameID();
             if (copter.OwnerID != 0) {
                 pnid.userid = copter.OwnerID;
+                pnid.username = BasePlayer.FindByID(copter.OwnerID)?.displayName;
                 aturret.authorizedPlayers.Add(pnid);
             }
             aturret.SendNetworkUpdate();
 
-            timer.Once(0.1f, () => {
+            timer.Once(1.0f, () => {
                 ElectricSwitch aSwitch = aturret.GetComponentInChildren<ElectricSwitch>();
                 aSwitch = GameManager.server.CreateEntity(switchPrefab, aturret.transform.position)?.GetComponent<ElectricSwitch>();
                 if (aSwitch == null) return;
@@ -151,7 +152,7 @@ namespace Oxide.Plugins {
             copter.torqueScale = copterDefaults.torqueScale;
             if (removeStorage) {
                 foreach (var child in copter.children.ToList()) {
-                    if (child.name == storagePrefab || child.name == storageLargePrefab) {
+                    if (child.name == storagePrefab || child.name == storageLargePrefab || child.name == autoturretPrefab) {
                         copter.RemoveChild(child);
                         child.Kill();
                     }
@@ -260,6 +261,7 @@ namespace Oxide.Plugins {
             public int flyHackPause = 4;
             public bool autoturret = true;
             public bool landOnCargo = true;
+            public float turretRange = 30f;
 
             // Plugin reference
             private MiniCopterOptions plugin;
@@ -282,6 +284,7 @@ namespace Oxide.Plugins {
                 GetConfig(ref flyHackPause, "Seconds to pause flyhack when dismount from heli.");
                 GetConfig(ref autoturret, "Add auto turret to heli");
                 GetConfig(ref landOnCargo, "Allow Minis to Land on Cargo");
+                GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
 
                 plugin.SaveConfig();
             }
