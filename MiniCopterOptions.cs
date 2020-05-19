@@ -183,7 +183,7 @@ namespace Oxide.Plugins {
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
 
             if (config.autoturret && copter.GetComponentInChildren<AutoTurret>() == null) {
-                //AddTurret(copter);
+                AddTurret(copter);
             }
             if (storage) AddLargeStorageBox(copter);
             if (storage)
