@@ -362,7 +362,7 @@ namespace Oxide.Plugins {
             }
 
             void OnTriggerEnter(Collider col) {
-                _instance.PrintToChat("Enter");
+                //_instance.PrintToChat("Enter");
                 if (cargoId > 0) {
                     CancelInvoke("Exit");
                     return;
@@ -378,7 +378,7 @@ namespace Oxide.Plugins {
             }
 
             void OnTriggerExit(Collider col) {
-                _instance.PrintToChat("Exit");
+                //_instance.PrintToChat("Exit");
                 if (isDestroyed || cargoId == 0 || col.ToBaseEntity().net.ID != cargoId) return;
                 Invoke("Exit", 1.5f);
             }
