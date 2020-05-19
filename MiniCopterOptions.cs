@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.4")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.5")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         #region Prefab Modifications
@@ -66,7 +66,7 @@ namespace Oxide.Plugins {
             aturret.Spawn();
             aturret.pickup.enabled = false;
             aturret.sightRange = config.turretRange;
-            UnityEngine.Object.Destroy(aturret.GetComponent<DestroyOnGroundMissing>());
+            DestroyGroundComp(aturret);
             aturret.SetParent(copter);
             aturret.transform.localPosition = new Vector3(0, 0, 2.47f);
             aturret.transform.localRotation = Quaternion.Euler(0, 0, 0);
@@ -87,8 +87,8 @@ namespace Oxide.Plugins {
                 aSwitch.transform.localPosition = new Vector3(0f, -0.65f, 0.325f);
                 aSwitch.transform.localRotation = Quaternion.Euler(0, 0, 0);
                 aSwitch.Spawn();
-                UnityEngine.Object.Destroy(aSwitch.GetComponent<DestroyOnGroundMissing>());
-                UnityEngine.Object.Destroy(aSwitch.GetComponent<GroundWatch>());
+                aSwitch._limitedNetworking = false;
+                DestroyGroundComp(aSwitch);
                 aturret.inputs[0].connectedTo.Set(aSwitch);
                 aturret.inputs[0].connectedToSlot = 0;
                 aturret.inputs[0].connectedTo.Init();
@@ -102,12 +102,17 @@ namespace Oxide.Plugins {
         }
 
         void OnItemDeployed(Deployer deployer, BaseEntity entity) {
-            if (entity.GetParentEntity().ShortPrefabName.Equals("minicopter.entity")) {
+            if (entity?.GetParentEntity() != null && entity.GetParentEntity().ShortPrefabName.Equals("minicopter.entity")) {
                 CodeLock cLock = entity.GetComponentInChildren<CodeLock>();
                 cLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
                 cLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
                 cLock.SendNetworkUpdateImmediate();
             }
+        }
+
+        void DestroyGroundComp(BaseEntity ent) {
+            UnityEngine.Object.Destroy(ent.GetComponent<DestroyOnGroundMissing>());
+            UnityEngine.Object.Destroy(ent.GetComponent<GroundWatch>());
         }
 
 
