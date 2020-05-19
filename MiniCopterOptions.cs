@@ -3,16 +3,19 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.5")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.6")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
+        static MiniCopterOptions _instance;
         #region Prefab Modifications
 
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
         private readonly string storageLargePrefab = "assets/content/vehicles/boats/rhib/subents/rhib_storage.prefab";
         private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
-
+        void Loaded() {
+            _instance = this;
+        }
         void OnEntityDismounted(BaseMountable entity, BasePlayer player) {
             if (config.flyHackPause > 0 && entity is MiniCopter)
                 player.PauseFlyHackDetection(config.flyHackPause);
@@ -40,6 +43,7 @@ namespace Oxide.Plugins {
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) {
             AddStorageBox(copter, prefab, position, new Quaternion());
         }
+
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position, Quaternion q) {
 
             StorageContainer box = GameManager.server.CreateEntity(prefab, copter.transform.position, q) as StorageContainer;
@@ -172,9 +176,6 @@ namespace Oxide.Plugins {
             if (config.autoturret && copter.GetComponentInChildren<AutoTurret>() == null) {
                 AddTurret(copter);
             }
-            if (config.landOnCargo) {
-                copter.gameObject.AddComponent<MiniShipLandingGear>();
-            }
             if (storage) AddLargeStorageBox(copter);
             if (storage)
                 switch (config.storageContainers) {
@@ -210,18 +211,19 @@ namespace Oxide.Plugins {
                     StoreMiniCopterDefaults(copter);
                     break;
                 }
+                if (config.landOnCargo) copter.gameObject.AddComponent<MiniShipLandingGear>();
 
                 //ModifyMiniCopter(copter, config.reloadStorage);
             }
         }
 
-        void OnEntitySpawned(BaseNetworkable entity) {
-            if (entity == null || !(entity is MiniCopter) || !entity.ShortPrefabName.Equals("minicopter.entity")) return;
-            var minicopter = entity as MiniCopter;
+        void OnEntitySpawned(MiniCopter mini) {
 
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers. 
-            ModifyMiniCopter(minicopter, true);
+            ModifyMiniCopter(mini, true);
+            if (config.landOnCargo) mini.gameObject.AddComponent<MiniShipLandingGear>();
+
         }
 
         void OnEntityKill(BaseNetworkable entity) {
@@ -239,6 +241,7 @@ namespace Oxide.Plugins {
         void Unload() {
             foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
                 RestoreMiniCopter(copter, config.reloadStorage);
+                if (config.landOnCargo) UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
             }
         }
 
@@ -351,7 +354,7 @@ namespace Oxide.Plugins {
         #region Classes
         public class MiniShipLandingGear : MonoBehaviour {
             private MiniCopter miniCopter;
-            private CargoShip cargoShip;
+            private uint cargoId;
             private bool isDestroyed = false;
 
             void Awake() {
@@ -359,34 +362,38 @@ namespace Oxide.Plugins {
             }
 
             void OnTriggerEnter(Collider col) {
-                cargoShip = col.ToBaseEntity() as CargoShip;
-
-                if (cargoShip == null) {
-                    CancelInvoke("DelayedExit");
+                _instance.PrintToChat("Enter");
+                if (cargoId > 0) {
+                    CancelInvoke("Exit");
                     return;
                 }
 
                 if (!string.Equals(col.gameObject.name, "trigger")) return;
 
-                miniCopter.SetParent(cargoShip, true);
+                CargoShip cargo = col.ToBaseEntity() as CargoShip;
+                if (cargo == null) return;
+
+                cargoId = cargo.net.ID;
+                miniCopter.SetParent(cargo, true);
             }
 
             void OnTriggerExit(Collider col) {
-                if (isDestroyed || cargoShip.net.ID <= 0 || col.ToBaseEntity().net.ID != cargoShip.net.ID) return;
-                Invoke("DelayedExit", 0.5f);
+                _instance.PrintToChat("Exit");
+                if (isDestroyed || cargoId == 0 || col.ToBaseEntity().net.ID != cargoId) return;
+                Invoke("Exit", 1.5f);
             }
 
-            void DelayedExit() {
-                if (isDestroyed || miniCopter == null || miniCopter.IsDestroyed) return;
+            void Exit() {
+                cargoId = 0;
+                if (isDestroyed || miniCopter == null || miniCopter.IsDestroyed || !miniCopter.IsMounted()) return;
                 miniCopter.SetParent(null, true);
             }
 
             void OnDestroy() {
                 isDestroyed = true;
-                this.CancelInvoke("DelayedExit");
+                CancelInvoke("Exit");
 
                 if (miniCopter == null || miniCopter.IsDestroyed) return;
-
                 miniCopter.SetParent(null, true, true);
             }
         }
