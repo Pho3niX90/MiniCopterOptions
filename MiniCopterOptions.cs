@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.3")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.4")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         #region Prefab Modifications
@@ -50,8 +50,6 @@ namespace Oxide.Plugins {
             }
 
             box.Spawn();
-            //box.prefabAttribute.serverside = true;
-            //UnityEngine.Object.Destroy(box.GetComponent<DestroyOnGroundMissing>());
             box.SetParent(copter);
             box.transform.localPosition = position;
 
@@ -115,8 +113,9 @@ namespace Oxide.Plugins {
 
         private object OnSwitchToggle(ElectricSwitch eswitch, BasePlayer player) {
             BaseEntity parent = eswitch.GetParentEntity();
-            if (parent.PrefabName.Equals(autoturretPrefab)) {
+            if (parent != null && parent.PrefabName.Equals(autoturretPrefab)) {
                 AutoTurret turret = parent as AutoTurret;
+                if (turret == null) return null;
                 if (!eswitch.IsOn())
                     PowerTurretOn(turret);
                 else
@@ -168,7 +167,7 @@ namespace Oxide.Plugins {
             if (config.autoturret && copter.GetComponentInChildren<AutoTurret>() == null) {
                 AddTurret(copter);
             }
-            if(config.landOnCargo) {
+            if (config.landOnCargo) {
                 copter.gameObject.AddComponent<MiniShipLandingGear>();
             }
             if (storage) AddLargeStorageBox(copter);
