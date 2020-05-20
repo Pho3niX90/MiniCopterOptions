@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.7")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.8")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         static MiniCopterOptions _instance;
@@ -15,6 +15,7 @@ namespace Oxide.Plugins {
         private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
         private readonly string searchLightPrefab = "assets/prefabs/deployable/search light/searchlight.deployed.prefab";
+        private readonly string batteryPrefab = "assets/prefabs/deployable/playerioents/batteries/smallrechargablebattery.deployed.prefab";
 
         void Loaded() {
             _instance = this;
@@ -23,6 +24,19 @@ namespace Oxide.Plugins {
         void OnEntityDismounted(BaseMountable entity, BasePlayer player) {
             if (config.flyHackPause > 0 && entity is MiniCopter)
                 player.PauseFlyHackDetection(config.flyHackPause);
+        }
+
+        object CanMountEntity(BasePlayer player, BaseMountable entity) {
+            if (!config.autoturretBattery) return null;
+            MiniCopter ent = entity.GetParentEntity() as MiniCopter;
+            if (ent != null) {
+                IOEntity ioe = GetBatteryConnected(ent);
+                if (ioe != null) {
+                    SendReply(player, $"First disconnect battery input from {ioe.GetDisplayName()}");
+                    return false;
+                }
+            }
+            return null;
         }
 
         void AddLargeStorageBox(MiniCopter copter) {
@@ -41,7 +55,7 @@ namespace Oxide.Plugins {
 
         void AddSideStorageBoxes(MiniCopter copter) {
             AddStorageBox(copter, storagePrefab, new Vector3(0.6f, 0.24f, -0.35f));
-            AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
+            if (!config.autoturretBattery) AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
         }
 
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) {
@@ -87,9 +101,9 @@ namespace Oxide.Plugins {
         void AddTurret(MiniCopter copter) {
             AutoTurret aturret = GameManager.server.CreateEntity(autoturretPrefab, copter.transform.position) as AutoTurret;
             aturret.Spawn();
+            DestroyGroundComp(aturret);
             aturret.pickup.enabled = false;
             aturret.sightRange = config.turretRange;
-            DestroyGroundComp(aturret);
             aturret.SetParent(copter);
             aturret.transform.localPosition = new Vector3(0, 0, 2.47f);
             aturret.transform.localRotation = Quaternion.Euler(0, 0, 0);
@@ -101,6 +115,27 @@ namespace Oxide.Plugins {
             }
             aturret.SendNetworkUpdate();
 
+            AddSwitch(aturret);
+        }
+
+        ElectricBattery AddBattery(MiniCopter copter) {
+            ElectricBattery abat = GameManager.server.CreateEntity(batteryPrefab, copter.transform.position) as ElectricBattery;
+            abat.maxOutput = 12;
+            abat.Spawn();
+            DestroyGroundComp(abat);
+            abat.pickup.enabled = false;
+            abat.SetParent(copter);
+            abat.transform.localPosition = new Vector3(-0.7f, 0.2f, -0.2f);
+            abat.transform.localRotation = Quaternion.Euler(0, 0, 0);
+            abat.SendNetworkUpdate();
+            return abat;
+        }
+
+        void AddSwitch(AutoTurret aturret) {
+            ElectricBattery bat = null;
+            if (config.autoturretBattery) {
+                bat = AddBattery(aturret.GetParentEntity() as MiniCopter);
+            }
 
             ElectricSwitch aSwitch = aturret.GetComponentInChildren<ElectricSwitch>();
             aSwitch = GameManager.server.CreateEntity(switchPrefab, aturret.transform.position)?.GetComponent<ElectricSwitch>();
@@ -109,27 +144,52 @@ namespace Oxide.Plugins {
             aSwitch.SetParent(aturret);
             aSwitch.transform.localPosition = new Vector3(0f, -0.65f, 0.325f);
             aSwitch.transform.localRotation = Quaternion.Euler(0, 0, 0);
+            DestroyGroundComp(aSwitch);
             aSwitch.Spawn();
             aSwitch._limitedNetworking = false;
-            DestroyGroundComp(aSwitch);
-            aturret.inputs[0].connectedTo.Set(aSwitch);
-            aturret.inputs[0].connectedToSlot = 0;
-            aturret.inputs[0].connectedTo.Init();
-            aSwitch.outputs[0].connectedTo.Set(aturret);
-            aSwitch.outputs[0].connectedToSlot = 0;
-            aSwitch.outputs[0].connectedTo.Init();
-            aSwitch.MarkDirtyForceUpdateOutputs();
-            aSwitch.UpdateHasPower(12, 0);
-            aSwitch.SendNetworkUpdate();
+            if (!config.autoturretBattery) {
+                RunWire(aSwitch, 0, aturret, 0, 12);
+            } else if (bat != null) {
+                RunWire(bat, 0, aSwitch, 0);
+                RunWire(aSwitch, 0, aturret, 0);
+            }
+        }
+
+        // https://umod.org/community/rust/12554-trouble-spawning-a-switch?page=1#post-5
+        private void RunWire(IOEntity source, int s_slot, IOEntity destination, int d_slot, int power = 0) {
+            destination.inputs[d_slot].connectedTo.Set(source);
+            destination.inputs[d_slot].connectedToSlot = s_slot;
+            destination.inputs[d_slot].connectedTo.Init();
+            source.outputs[s_slot].connectedTo.Set(destination);
+            source.outputs[s_slot].connectedToSlot = d_slot;
+            source.outputs[s_slot].connectedTo.Init();
+            source.MarkDirtyForceUpdateOutputs();
+            if (power > 0) {
+                destination.UpdateHasPower(power, 0);
+                source.UpdateHasPower(power, 0);
+            }
+            source.SendNetworkUpdate(BasePlayer.NetworkQueue.Update);
+            destination.SendNetworkUpdate(BasePlayer.NetworkQueue.Update);
         }
 
         void DestroyGroundComp(BaseEntity ent) {
             UnityEngine.Object.Destroy(ent.GetComponent<DestroyOnGroundMissing>());
             UnityEngine.Object.Destroy(ent.GetComponent<GroundWatch>());
+            //UnityEngine.Object.Destroy(ent.GetComponent<Rigidbody>());
         }
 
+        IOEntity GetBatteryConnected(MiniCopter ent) {
+            Puts("Search bat");
+            ElectricBattery bat = ent.GetComponentInChildren<ElectricBattery>();
+            if (bat != null) {
+                Puts("Found bat");
+                return bat.inputs[0].connectedTo.ioEnt;
+            }
+            return null;
+        }
 
         private object OnSwitchToggle(ElectricSwitch eswitch, BasePlayer player) {
+            if (config.autoturretBattery) return null;
             BaseEntity parent = eswitch.GetParentEntity();
             if (parent != null && parent.PrefabName.Equals(autoturretPrefab)) {
                 AutoTurret turret = parent as AutoTurret;
@@ -168,7 +228,7 @@ namespace Oxide.Plugins {
             copter.liftFraction = copterDefaults.liftFraction;
             copter.torqueScale = copterDefaults.torqueScale;
             if (removeStorage) {
-                foreach (var child in copter.children.ToList()) {
+                foreach (var child in copter.children) {
                     if (child.name == storagePrefab || child.name == storageLargePrefab || child.name == autoturretPrefab) {
                         copter.RemoveChild(child);
                         child.Kill();
@@ -183,9 +243,12 @@ namespace Oxide.Plugins {
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
 
             if (config.autoturret && copter.GetComponentInChildren<AutoTurret>() == null) {
-                AddTurret(copter);
+                timer.Once(copter.isSpawned ? 0 : 0.2f, () => {
+                    AddTurret(copter);
+                });
             }
             if (storage) AddLargeStorageBox(copter);
+
             if (storage)
                 switch (config.storageContainers) {
                     case 1:
@@ -199,9 +262,17 @@ namespace Oxide.Plugins {
                         AddSideStorageBoxes(copter);
                         break;
                 }
+
+            foreach (var bat in copter.children) {
+                Puts($"{bat.GetType().Name}");
+            }
         }
 
         void StoreMiniCopterDefaults(MiniCopter copter) {
+            if (copter.liftFraction == 0 || copter.torqueScale.x == 0 || copter.torqueScale.y == 0 || copter.torqueScale.z == 0) {
+                copter.liftFraction = 0.25f;
+                copter.torqueScale = new Vector3(400f, 400f, 200f);
+            }
             Puts($"Defaults for copters saved as \nfuelPerSecond = {copter.fuelPerSec}\nliftFraction = {copter.liftFraction}\ntorqueScale = {copter.torqueScale}");
             copterDefaults = new MiniCopterDefaults {
                 fuelPerSecond = copter.fuelPerSec,
@@ -231,6 +302,7 @@ namespace Oxide.Plugins {
                     StoreMiniCopterDefaults(copter);
                     break;
                 }
+
                 if (config.landOnCargo) copter.gameObject.AddComponent<MiniShipLandingGear>();
 
                 ModifyMiniCopter(copter, config.reloadStorage);
@@ -252,6 +324,7 @@ namespace Oxide.Plugins {
             foreach (StorageContainer container in containers) {
                 container.DropItems();
             }
+
             AutoTurret[] turrets = entity.GetComponentsInChildren<AutoTurret>();
             foreach (AutoTurret turret in turrets) {
                 turret.DropItems();
@@ -264,9 +337,6 @@ namespace Oxide.Plugins {
                 if (config.landOnCargo) UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
             }
         }
-
-
-
         #endregion
 
         #region Configuration
@@ -290,6 +360,7 @@ namespace Oxide.Plugins {
             public bool autoturret = true;
             public bool landOnCargo = true;
             public bool allowMiniPush = true;
+            public bool autoturretBattery = true;
             //public bool addSearchLight = true;
             public float turretRange = 30f;
 
@@ -313,6 +384,7 @@ namespace Oxide.Plugins {
                 GetConfig(ref largeStorageSize, "Large Storage Size (Max 42)");
                 GetConfig(ref flyHackPause, "Seconds to pause flyhack when dismount from heli.");
                 GetConfig(ref autoturret, "Add auto turret to heli");
+                GetConfig(ref autoturretBattery, "Auto turret uses battery");
                 //GetConfig(ref addSearchLight, "Add Searchlight to heli");
                 GetConfig(ref landOnCargo, "Allow Minis to Land on Cargo");
                 GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
@@ -405,7 +477,9 @@ namespace Oxide.Plugins {
         private string GetEnglishName(string shortName) { return ItemManager.FindItemDefinition(shortName)?.displayName?.english ?? shortName; }
         void PushMini(BasePlayer player, BaseVehicle bVehicle) {
             //bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 15f, raycastHit.point, ForceMode.VelocityChange);
-            bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 5f, raycastHit.point, ForceMode.VelocityChange);
+            PrintToChat($"{bVehicle.rigidBody.name} {raycastHit.point}");
+            bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 2f, raycastHit.point, ForceMode.VelocityChange);
+            bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 5.5f, raycastHit.point, ForceMode.VelocityChange);
             player.metabolism.calories.Subtract(2f);
             player.metabolism.SendChangesToClient();
             Effect.server.Run("assets/content/vehicles/boats/effects/small-boat-push-land.prefab", bVehicle.GetNetworkPosition());
@@ -429,7 +503,7 @@ namespace Oxide.Plugins {
                     return;
                 }
                 //_instance.PrintToChat(col.gameObject.name);
-                if (!string.Equals(col.gameObject.name, "trigger")) return;
+                if (!col.gameObject.name.Equals("trigger")) return;
 
                 CargoShip cargo = col.ToBaseEntity() as CargoShip;
                 if (cargo == null) return;
