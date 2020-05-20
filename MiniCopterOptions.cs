@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.9")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         static MiniCopterOptions _instance;
@@ -301,7 +301,7 @@ namespace Oxide.Plugins {
                     break;
                 }
 
-                if (config.landOnCargo) copter.gameObject.AddComponent<MiniShipLandingGear>();
+                
 
                 ModifyMiniCopter(copter, config.reloadStorage);
             }
@@ -312,7 +312,7 @@ namespace Oxide.Plugins {
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers. 
             ModifyMiniCopter(mini, true);
-            if (config.landOnCargo) mini.gameObject.AddComponent<MiniShipLandingGear>();
+            
             //if (config.addSearchLight) AddSearchLight(mini);
         }
 
@@ -332,7 +332,7 @@ namespace Oxide.Plugins {
         void Unload() {
             foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
                 RestoreMiniCopter(copter, config.reloadStorage);
-                if (config.landOnCargo) UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
+                
             }
         }
         #endregion
@@ -384,7 +384,7 @@ namespace Oxide.Plugins {
                 GetConfig(ref autoturret, "Add auto turret to heli");
                 GetConfig(ref autoturretBattery, "Auto turret uses battery");
                 //GetConfig(ref addSearchLight, "Add Searchlight to heli");
-                GetConfig(ref landOnCargo, "Allow Minis to Land on Cargo");
+                
                 GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
                 GetConfig(ref allowMiniPush, "Allow minicopter push");
 
@@ -485,52 +485,7 @@ namespace Oxide.Plugins {
         #endregion
 
         #region Classes
-        public class MiniShipLandingGear : MonoBehaviour {
-            private MiniCopter miniCopter;
-            private uint cargoId;
-            private bool isDestroyed = false;
 
-            void Awake() {
-                miniCopter = gameObject.GetComponent<MiniCopter>();
-            }
-
-            //https://docs.unity3d.com/ScriptReference/Collider.OnTriggerEnter.html
-            void OnTriggerEnter(Collider col) {
-                if (cargoId > 0) {
-                    CancelInvoke("Exit");
-                    return;
-                }
-                //_instance.PrintToChat(col.gameObject.name);
-                if (!col.gameObject.name.Equals("trigger")) return;
-
-                CargoShip cargo = col.ToBaseEntity() as CargoShip;
-                if (cargo == null) return;
-
-                cargoId = cargo.net.ID;
-                miniCopter.SetParent(cargo, true);
-            }
-
-            //https://docs.unity3d.com/ScriptReference/Collider.OnTriggerExit.html
-            void OnTriggerExit(Collider col) {
-                //_instance.PrintToChat("Exit");
-                if (isDestroyed || cargoId == 0 || col.ToBaseEntity().net.ID != cargoId) return;
-                Invoke("Exit", 1.5f);
-            }
-
-            void Exit() {
-                cargoId = 0;
-                if (isDestroyed || miniCopter == null || miniCopter.IsDestroyed || !miniCopter.IsMounted()) return;
-                miniCopter.SetParent(null, true);
-            }
-
-            void OnDestroy() {
-                isDestroyed = true;
-                CancelInvoke("Exit");
-
-                if (miniCopter == null || miniCopter.IsDestroyed) return;
-                miniCopter.SetParent(null, true, true);
-            }
-        }
         #endregion
 
     }
