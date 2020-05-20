@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "1.1.8")]
+    [Info("Mini-Copter Options", "Pho3niX90", "1.1.9")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         static MiniCopterOptions _instance;
@@ -179,10 +179,8 @@ namespace Oxide.Plugins {
         }
 
         IOEntity GetBatteryConnected(MiniCopter ent) {
-            Puts("Search bat");
             ElectricBattery bat = ent.GetComponentInChildren<ElectricBattery>();
             if (bat != null) {
-                Puts("Found bat");
                 return bat.inputs[0].connectedTo.ioEnt;
             }
             return null;
