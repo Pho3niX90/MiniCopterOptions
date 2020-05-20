@@ -14,7 +14,10 @@ The default configuration mimics the default Rust values.
 
 ```json
 {
-  "Add auto turret to heli": true,
+  "Add auto turret to heli": true, // adds an autoturret to the mini
+  "Allow minicopter push": true,  //if players should be allowed to push the mini with /push
+  "Allow Minis to Land on Cargo": true,
+  "Auto turret uses battery": true, // if true, the mini will have a small battery that will require charging to run the turret, if false, the turret will have an endless supply of power from the switch.
   "Drop Storage Loot On Death": true, // drops storage loot when heli is destroyed
   "Fuel per Second": 0.25,
   "Large Storage Containers": 2, //how many large containers should there be (max 2)
