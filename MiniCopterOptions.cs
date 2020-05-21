@@ -1,12 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.2")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin {
         static MiniCopterOptions _instance;
+        bool lastRanAtNight;
         RaycastHit raycastHit;
         #region Prefab Modifications
 
@@ -16,9 +18,73 @@ namespace Oxide.Plugins {
         private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
         private readonly string searchLightPrefab = "assets/prefabs/deployable/search light/searchlight.deployed.prefab";
         private readonly string batteryPrefab = "assets/prefabs/deployable/playerioents/batteries/smallrechargablebattery.deployed.prefab";
+        private readonly string flasherBluePrefab = "assets/prefabs/deployable/playerioents/lights/flasherlight/electric.flasherlight.deployed.prefab";
+        private readonly string flasherRedPrefab = "assets/prefabs/deployable/playerioents/lights/sirenlight/electric.sirenlight.deployed.prefab";
+        private readonly string strobePrefab = "assets/content/props/strobe light/strobelight.prefab";
+        private readonly string lockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
+        private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
+        private readonly string fxBoatPush = "assets/content/vehicles/boats/effects/small-boat-push-land.prefab";
+
+        TOD_Sky time;
+        float sunrise;
+        float sunset;
+        float lastCheck;
 
         void Loaded() {
             _instance = this;
+
+            if (config.lightTail) {
+                time = TOD_Sky.Instance;
+                sunrise = time.SunriseTime;
+                sunset = time.SunsetTime;
+
+                time.Components.Time.OnHour += OnHour;
+            }
+        }
+
+        void Unload() {
+            foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
+                RestoreMiniCopter(copter, config.reloadStorage);
+                if (config.landOnCargo) UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
+            }
+
+            if (config.lightTail) {
+                time.Components.Time.OnHour -= OnHour;
+            }
+        }
+
+        void OnHour() {
+            float hour = time.Cycle.Hour;
+            bool isNight = !(hour >= sunrise && hour <= sunset);
+            //Puts($"OnHour: hour is now {hour}, and it is night {isNight}");
+            if ((isNight == lastRanAtNight) || (lastCheck == hour)) return;
+            //Puts($"OnHour Called: Night:{isNight} LastRanAtNight:{lastRanAtNight}");
+            lastCheck = hour;
+
+            MiniCopter[] minis = BaseNetworkable.FindObjectsOfType<MiniCopter>().Where(x => x.GetComponentInChildren<FlasherLight>() != null).ToArray();
+            //Puts($"OnHour Called: Minis to modify {minis.Count()}");
+            foreach (var mini in minis) {
+                ToggleLight(mini.GetComponentInChildren<FlasherLight>());
+            }
+            lastRanAtNight ^= true;
+        }
+
+        void OnPlayerInput(BasePlayer player, InputState input) {
+            if (!config.addSearchLight || player == null || input == null) return;
+            if (player.isMounted) {
+                BaseVehicle vehicle = player.GetMountedVehicle();
+                if (vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
+                    ToggleMiniLights(vehicle as MiniCopter);
+                }
+            } else if (input.WasJustPressed(BUTTON.RELOAD) && player.GetActiveItem() == null) {
+                GetTargetEntity(player);
+            }
+        }
+
+        void ToggleMiniLights(MiniCopter mini) {
+            foreach (var light in mini.GetComponentsInChildren<SearchLight>()) {
+                ToggleLight(light);
+            }
         }
 
         void OnEntityDismounted(BaseMountable entity, BasePlayer player) {
@@ -27,12 +93,17 @@ namespace Oxide.Plugins {
         }
 
         object CanMountEntity(BasePlayer player, BaseMountable entity) {
-            if (!config.autoturretBattery) return null;
+            if (!(entity is MiniCopter) && !(entity.GetParentEntity() is MiniCopter)) return null;
+            if (player.serverInput.IsDown(BUTTON.FIRE_PRIMARY) || player.serverInput.WasDown(BUTTON.FIRE_PRIMARY)) {
+                GetTargetEntity(player);
+                return false;
+            }
+            if (!IsBatEnabled()) return null;
             MiniCopter ent = entity.GetParentEntity() as MiniCopter;
             if (ent != null) {
                 IOEntity ioe = GetBatteryConnected(ent);
                 if (ioe != null) {
-                    SendReply(player, $"First disconnect battery input from {ioe.GetDisplayName()}");
+                    SendReply(player, GetMsg("Err - Diconnect Battery"), ioe.GetDisplayName());
                     return false;
                 }
             }
@@ -55,7 +126,7 @@ namespace Oxide.Plugins {
 
         void AddSideStorageBoxes(MiniCopter copter) {
             AddStorageBox(copter, storagePrefab, new Vector3(0.6f, 0.24f, -0.35f));
-            if (!config.autoturretBattery) AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
+            if (!IsBatEnabled()) AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
         }
 
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) {
@@ -82,41 +153,100 @@ namespace Oxide.Plugins {
             box.SendNetworkUpdateImmediate(true);
         }
 
+        void AddFlightLigts(MiniCopter copter) {
+            FlasherLight alight = GameManager.server.CreateEntity(flasherBluePrefab, copter.transform.position) as FlasherLight;
+            alight.Spawn();
+            DestroyGroundComp(alight);
+            ToggleLight(alight);
+            alight.SetParent(copter);
+            alight.transform.localPosition = new Vector3(0, 1.2f, -2.0f);
+            alight.transform.localRotation = Quaternion.Euler(new Vector3(33, 180, 0));
+            alight.SendNetworkUpdateImmediate();
+        }
+
+        void ToggleLight(IOEntity ent) {
+            ent.UpdateHasPower(!ent.IsPowered() ? 10 : 0, 1);
+            ent.SetFlag(BaseEntity.Flags.On, !ent.IsPowered());
+            ent.SendNetworkUpdateImmediate();
+        }
+
+        void ToggleLight(BaseEntity ent) {
+            ent.SetFlag(BaseEntity.Flags.On, !ent.IsOn());
+            if (ent is SearchLight) {
+                (ent as SearchLight).secondsRemaining = 9999999999;
+                ResetSearchLight(ent as SearchLight);
+            }
+            ent.SendNetworkUpdateImmediate();
+        }
+
         void AddSearchLight(MiniCopter copter) {
-            SphereEntity sph = (SphereEntity)GameManager.server.CreateEntity("assets/prefabs/visualization/sphere.prefab", copter.transform.position, new Quaternion(0, 0, 0, 0), true);
+            SphereEntity sph = (SphereEntity)GameManager.server.CreateEntity(spherePrefab, copter.transform.position, new Quaternion(0, 0, 0, 0), true);
+            DestroyMeshCollider(sph);
+            DestroyGroundComp(sph);
             sph.Spawn();
             sph.SetParent(copter);
-            sph.transform.localPosition = new Vector3(0, 0.33f, 2.0f);
-            sph.SendNetworkUpdate();
-
+            sph.transform.localPosition = new Vector3(0, -100, 0);
             SearchLight searchLight = GameManager.server.CreateEntity(searchLightPrefab, sph.transform.position) as SearchLight;
+            DestroyMeshCollider(searchLight);
+            DestroyGroundComp(searchLight);
             searchLight.Spawn();
+            searchLight.GetComponent<StorageContainer>().isLootable = false;
+            searchLight.SetFlag(BaseEntity.Flags.Reserved5, true, false, true);
             searchLight.SetParent(sph);
             searchLight.transform.localPosition = new Vector3(0, 0, 0);
+            ResetSearchLight(searchLight);
+            searchLight._maxHealth = 99999999f;
+            searchLight._health = 99999999f;
+            searchLight.pickup.enabled = false;
+            searchLight.isLockable = true;
             searchLight.SendNetworkUpdate();
+            sph.transform.localScale += new Vector3(0.9f, 0, 0);
+            sph.LerpRadiusTo(0.1f, 10f);
+            timer.Once(3f, () => {
+                sph.transform.localPosition = new Vector3(0, 0.24f, 1.8f);
+            });
+            sph.SendNetworkUpdateImmediate();
+            //PrintComponents(searchLight);
+        }
 
-            sph.LerpRadiusTo(0.1f, 1f);
+        void ResetSearchLight(SearchLight searchLight) {
+            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 180));
+        }
+
+        void AddLock(BaseEntity ent) {
+            CodeLock alock = GameManager.server.CreateEntity(lockPrefab) as CodeLock;
+
+            alock.Spawn();
+            alock.code = "789456789123";
+            alock.SetParent(ent, ent.GetSlotAnchorName(BaseEntity.Slot.Lock));
+            alock.transform.localScale += new Vector3(-50, -50, -50);
+            ent.SetSlot(BaseEntity.Slot.Lock, alock);
+            alock.SetFlag(BaseEntity.Flags.Locked, true);
+            alock.SendNetworkUpdateImmediate();
         }
 
         void AddTurret(MiniCopter copter) {
             AutoTurret aturret = GameManager.server.CreateEntity(autoturretPrefab, copter.transform.position) as AutoTurret;
-            aturret.Spawn();
+            DestroyMeshCollider(aturret);
             DestroyGroundComp(aturret);
+            aturret.Spawn();
             aturret.pickup.enabled = false;
             aturret.sightRange = config.turretRange;
             aturret.SetParent(copter);
             aturret.transform.localPosition = new Vector3(0, 0, 2.47f);
             aturret.transform.localRotation = Quaternion.Euler(0, 0, 0);
             ProtoBuf.PlayerNameID pnid = new ProtoBuf.PlayerNameID();
-            if (copter.OwnerID != 0) {
-                pnid.userid = copter.OwnerID;
-                pnid.username = BasePlayer.FindByID(copter.OwnerID)?.displayName;
+            BasePlayer player = BasePlayer.FindByID(copter.OwnerID);
+            if (player != null) {
+                pnid.userid = player.userID;
+                pnid.username = player?.displayName;
                 aturret.authorizedPlayers.Add(pnid);
             }
             aturret.SendNetworkUpdate();
-
             AddSwitch(aturret);
         }
+
+        bool IsBatEnabled() => config.autoturretBattery && config.autoturret;
 
         ElectricBattery AddBattery(MiniCopter copter) {
             ElectricBattery abat = GameManager.server.CreateEntity(batteryPrefab, copter.transform.position) as ElectricBattery;
@@ -133,7 +263,7 @@ namespace Oxide.Plugins {
 
         void AddSwitch(AutoTurret aturret) {
             ElectricBattery bat = null;
-            if (config.autoturretBattery) {
+            if (IsBatEnabled()) {
                 bat = AddBattery(aturret.GetParentEntity() as MiniCopter);
             }
 
@@ -144,10 +274,11 @@ namespace Oxide.Plugins {
             aSwitch.SetParent(aturret);
             aSwitch.transform.localPosition = new Vector3(0f, -0.65f, 0.325f);
             aSwitch.transform.localRotation = Quaternion.Euler(0, 0, 0);
+            DestroyMeshCollider(aSwitch);
             DestroyGroundComp(aSwitch);
             aSwitch.Spawn();
             aSwitch._limitedNetworking = false;
-            if (!config.autoturretBattery) {
+            if (!IsBatEnabled()) {
                 RunWire(aSwitch, 0, aturret, 0, 12);
             } else if (bat != null) {
                 RunWire(bat, 0, aSwitch, 0);
@@ -173,21 +304,22 @@ namespace Oxide.Plugins {
         }
 
         void DestroyGroundComp(BaseEntity ent) {
-            UnityEngine.Object.Destroy(ent.GetComponent<DestroyOnGroundMissing>());
-            UnityEngine.Object.Destroy(ent.GetComponent<GroundWatch>());
-            //UnityEngine.Object.Destroy(ent.GetComponent<Rigidbody>());
+            UnityEngine.Object.DestroyImmediate(ent.GetComponent<DestroyOnGroundMissing>());
+            UnityEngine.Object.DestroyImmediate(ent.GetComponent<GroundWatch>());
+        }
+
+        void DestroyMeshCollider(BaseEntity ent) {
+            foreach (var mesh in ent.GetComponentsInChildren<MeshCollider>()) {
+                UnityEngine.Object.DestroyImmediate(mesh);
+            }
         }
 
         IOEntity GetBatteryConnected(MiniCopter ent) {
-            ElectricBattery bat = ent.GetComponentInChildren<ElectricBattery>();
-            if (bat != null) {
-                return bat.inputs[0].connectedTo.ioEnt;
-            }
-            return null;
+            return ent.GetComponentInChildren<ElectricBattery>()?.inputs[0]?.connectedTo.ioEnt;
         }
 
         private object OnSwitchToggle(ElectricSwitch eswitch, BasePlayer player) {
-            if (config.autoturretBattery) return null;
+            if (IsBatEnabled()) return null;
             BaseEntity parent = eswitch.GetParentEntity();
             if (parent != null && parent.PrefabName.Equals(autoturretPrefab)) {
                 AutoTurret turret = parent as AutoTurret;
@@ -204,6 +336,7 @@ namespace Oxide.Plugins {
             turret.SetFlag(BaseEntity.Flags.Reserved8, true);
             turret.InitiateStartup();
         }
+
         private void PowerTurretOff(AutoTurret turret) {
             turret.SetFlag(BaseEntity.Flags.Reserved8, false);
             turret.InitiateShutdown();
@@ -245,6 +378,7 @@ namespace Oxide.Plugins {
                     AddTurret(copter);
                 });
             }
+
             if (storage) AddLargeStorageBox(copter);
 
             if (storage)
@@ -260,10 +394,6 @@ namespace Oxide.Plugins {
                         AddSideStorageBoxes(copter);
                         break;
                 }
-
-            foreach (var bat in copter.children) {
-                Puts($"{bat.GetType().Name}");
-            }
         }
 
         void StoreMiniCopterDefaults(MiniCopter copter) {
@@ -284,7 +414,7 @@ namespace Oxide.Plugins {
         #region Hooks
 
         void OnItemDeployed(Deployer deployer, BaseEntity entity) {
-            if (entity?.GetParentEntity() != null && entity.GetParentEntity().ShortPrefabName.Equals("minicopter.entity")) {
+            if (entity?.GetParentEntity() != null && (entity.GetParentEntity() is MiniCopter)) {
                 CodeLock cLock = entity.GetComponentInChildren<CodeLock>();
                 cLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
                 cLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
@@ -301,38 +431,32 @@ namespace Oxide.Plugins {
                     break;
                 }
 
-                
+                if (config.landOnCargo) copter.gameObject.AddComponent<MiniShipLandingGear>();
 
                 ModifyMiniCopter(copter, config.reloadStorage);
             }
         }
 
         void OnEntitySpawned(MiniCopter mini) {
-
+            //PrintComponents(mini);
+            if (mini.name.Contains("trans")) return;
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers. 
             ModifyMiniCopter(mini, true);
-            
-            //if (config.addSearchLight) AddSearchLight(mini);
+            if (config.landOnCargo) mini.gameObject.AddComponent<MiniShipLandingGear>();
+            if (config.addSearchLight) AddSearchLight(mini);
+            if (config.lightTail) AddFlightLigts(mini);
         }
 
         void OnEntityKill(BaseNetworkable entity) {
-            if (!config.dropStorage || !entity.ShortPrefabName.Equals("minicopter.entity")) return;
+            if (!config.dropStorage || !(entity is MiniCopter)) return;
             StorageContainer[] containers = entity.GetComponentsInChildren<StorageContainer>();
             foreach (StorageContainer container in containers) {
                 container.DropItems();
             }
-
             AutoTurret[] turrets = entity.GetComponentsInChildren<AutoTurret>();
             foreach (AutoTurret turret in turrets) {
                 turret.DropItems();
-            }
-        }
-
-        void Unload() {
-            foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
-                RestoreMiniCopter(copter, config.reloadStorage);
-                
             }
         }
         #endregion
@@ -355,12 +479,13 @@ namespace Oxide.Plugins {
             public bool largeStorageLockable = true;
             public int largeStorageSize = 42;
             public int flyHackPause = 4;
-            public bool autoturret = true;
+            public bool autoturret = false;
             public bool landOnCargo = true;
             public bool allowMiniPush = true;
             public bool autoturretBattery = true;
-            //public bool addSearchLight = true;
+            public bool addSearchLight = true;
             public float turretRange = 30f;
+            public bool lightTail = false;
 
             // Plugin reference
             private MiniCopterOptions plugin;
@@ -383,10 +508,11 @@ namespace Oxide.Plugins {
                 GetConfig(ref flyHackPause, "Seconds to pause flyhack when dismount from heli.");
                 GetConfig(ref autoturret, "Add auto turret to heli");
                 GetConfig(ref autoturretBattery, "Auto turret uses battery");
-                //GetConfig(ref addSearchLight, "Add Searchlight to heli");
-                
+                GetConfig(ref landOnCargo, "Allow Minis to Land on Cargo");
                 GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
                 GetConfig(ref allowMiniPush, "Allow minicopter push");
+                GetConfig(ref addSearchLight, "Light: Add Searchlight to heli");
+                GetConfig(ref lightTail, "Light: Add Nightitme Tail Light");
 
                 plugin.SaveConfig();
             }
@@ -456,35 +582,76 @@ namespace Oxide.Plugins {
 
         #region Helpers
         private void GetTargetEntity(BasePlayer player) {
-            bool flag = Physics.Raycast(player.eyes.HeadRay(), out raycastHit, 3f, Rust.Layers.Solid);
+            bool flag = Physics.Raycast(player.eyes.HeadRay(), out raycastHit, 2f, Rust.Layers.Solid);
             BaseEntity entity = raycastHit.GetEntity();
+            MiniCopter mini = ((entity is MiniCopter) ? entity : entity.GetParentEntity()) as MiniCopter;
 
-            if (!entity.ShortPrefabName.Equals("minicopter.entity")) {
-                if (entity.GetParentEntity() != null && entity.GetParentEntity().ShortPrefabName.Equals("minicopter.entity")) {
-                    PushMini(player, entity.GetParentEntity() as BaseVehicle);
-                    return;
-                }
-            }
-
-            if (entity != null && entity.ShortPrefabName.Equals("minicopter.entity")) {
-                PushMini(player, entity as BaseVehicle);
+            if (mini != null) {
+                PushMini(player, mini);
                 return;
             }
-            SendReply(player, $"You have to look at a minicopter. Pushing {GetEnglishName(entity.ShortPrefabName)} not allowed");
+            SendReply(player, GetMsg("Err - Can only push minicopter"), GetEnglishName(entity.ShortPrefabName));
         }
+
         private string GetEnglishName(string shortName) { return ItemManager.FindItemDefinition(shortName)?.displayName?.english ?? shortName; }
+
         void PushMini(BasePlayer player, BaseVehicle bVehicle) {
             //bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 15f, raycastHit.point, ForceMode.VelocityChange);
-            PrintToChat($"{bVehicle.rigidBody.name} {raycastHit.point}");
-            bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 2f, raycastHit.point, ForceMode.VelocityChange);
-            bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 5.5f, raycastHit.point, ForceMode.VelocityChange);
+
+            bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 3.0f, raycastHit.point, ForceMode.VelocityChange);
+            //bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 5.5f, raycastHit.point, ForceMode.VelocityChange);
+            timer.Once(0.1f, () => {
+                bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 1f, raycastHit.point, ForceMode.VelocityChange);
+            });
             player.metabolism.calories.Subtract(2f);
             player.metabolism.SendChangesToClient();
-            Effect.server.Run("assets/content/vehicles/boats/effects/small-boat-push-land.prefab", bVehicle.GetNetworkPosition());
+            Effect.server.Run(fxBoatPush, bVehicle.GetNetworkPosition());
+        }
+
+        void PrintComponents(BaseEntity ent) {
+            foreach (var sl in ent.GetComponents<Component>()) {
+                Puts($"-P- {sl.GetType().Name} | {sl.name}");
+                foreach (var s in sl.GetComponentsInChildren<Component>()) {
+                    Puts($"-C- {s.GetType().Name} | {s.name}");
+                }
+            }
         }
         #endregion
 
         #region Classes
+        public class MiniShipLandingGear : MonoBehaviour {
+            private MiniCopter miniCopter;
+            private bool pCargo;
+
+            void Awake() {
+                miniCopter = GetComponent<MiniCopter>();
+            }
+
+            void OnTriggerEnter(Collider collider) {
+                if (!collider.isTrigger || !(collider.ToBaseEntity() is CargoShip) || pCargo) return;
+                ParentTo(miniCopter, collider.ToBaseEntity());
+            }
+
+            void OnTriggerExit(Collider collider) {
+                if (!collider.isTrigger || !(collider.ToBaseEntity() is CargoShip) || !pCargo) return;
+                ParentTo(miniCopter, null);
+            }
+
+            void ParentTo(MiniCopter mini, BaseEntity parent) {
+                mini.SetParent(parent, true);
+                pCargo ^= true;
+            }
+        }
+        #endregion
+
+        #region Languages
+        protected override void LoadDefaultMessages() {
+            lang.RegisterMessages(new Dictionary<string, string> {
+                ["Err - Diconnect Battery"] = "First disconnect battery input from {0}",
+                ["Err - Can only push minicopter"] = "You have to look at a minicopter. Pushing {0} not allowed"
+            }, this);
+        }
+        string GetMsg(string key, object userID = null) => lang.GetMessage(key, this, userID == null ? null : userID.ToString());
 
         #endregion
 
