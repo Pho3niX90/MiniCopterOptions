@@ -11,27 +11,35 @@ Set **Restore Defaults** to true to restore the default movement and fuel consum
 ## Commands
 `/push` Pushes the mini.
 
+## Key binds
+Whilst looking at a mini, you can push it with the **R** key.
+The pilot can turn the search light on and off with **E**
+
 ## Configuration
 
 The default configuration mimics the default Rust values.
 
 ```json
 {
-  "Add auto turret to heli": true, // adds an autoturret to the mini
-  "Allow minicopter push": true,  //if players should be allowed to push the mini with /push
-  "Auto turret uses battery": true, // if true, the mini will have a small battery that will require charging to run the turret, if false, the turret will have an endless supply of power from the switch.
-  "Drop Storage Loot On Death": true, // drops storage loot when heli is destroyed
+  "Add auto turret to heli": false,
+  "Allow minicopter push": true,
+  "Allow Minis to Land on Cargo": true,
+  "Auto turret uses battery": true,
+  "Drop Storage Loot On Death": true,
   "Fuel per Second": 0.25,
-  "Large Storage Containers": 2, //how many large containers should there be (max 2)
-  "Large Storage Lockable": true, // if people can add locks to large containers
-  "Large Storage Size (Max 42)": 42, // storage capacity of large containers, max 42, min 6
+  "Large Storage Containers": 0,
+  "Large Storage Lockable": true,
+  "Large Storage Size (Max 42)": 42,
   "Lift Fraction": 0.25,
+  "Light: Add Nightitme Tail Light": false,
+  "Light: Add Searchlight to heli": true,
+  "Mini Turret Range (Default 30)": 30.0,
   "Pitch Torque Scale": 400.0,
   "Reload Storage": false,
   "Restore Defaults": true,
   "Roll Torque Scale": 200.0,
   "Seconds to pause flyhack when dismount from heli.": 4,
-  "Storage Containers": 3, // how many small containers there should be, max 3
+  "Storage Containers": 0,
   "Yaw Torque Scale": 400.0
 }
 ```
