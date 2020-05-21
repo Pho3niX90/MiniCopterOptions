@@ -1,4 +1,4 @@
-﻿Allows for the configuration of additional Mini-Copter options, including the addition of storage containers to the Mini-Copter.
+Allows for the configuration of additional Mini-Copter options, including the addition of storage containers to the Mini-Copter.
  
 ** If you like the plugin, don't forget to donate for further development, and to keep it free. Donate here**
 
