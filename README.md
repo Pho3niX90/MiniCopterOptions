@@ -15,8 +15,8 @@ Set **Restore Defaults** to true to restore the default movement and fuel consum
 `/push` Pushes the mini.
 
 ## Key binds
-* Whilst looking at a mini, you can push it with the **R** key.
-* The pilot can turn the search light on and off with **E**
+* Whilst looking at a mini, you can push it with the **RELOAD** key.
+* The pilot can turn the search light on and off with **USE** key
 
 ## Configuration
 
