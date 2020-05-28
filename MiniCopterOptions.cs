@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-namespace Oxide.Plugins {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.2")]
+namespace Oxide.Plugins
+{
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.3")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
-    class MiniCopterOptions : RustPlugin {
+    class MiniCopterOptions : RustPlugin
+    {
         static MiniCopterOptions _instance;
         bool lastRanAtNight;
         RaycastHit raycastHit;
@@ -73,17 +75,17 @@ namespace Oxide.Plugins {
             if (!config.addSearchLight || player == null || input == null) return;
             if (player.isMounted) {
                 BaseVehicle vehicle = player.GetMountedVehicle();
-                if (vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
+                if (vehicle != null && vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
                     ToggleMiniLights(vehicle as MiniCopter);
                 }
-            } else if (input.WasJustPressed(BUTTON.RELOAD) && player.GetActiveItem() == null) {
+            } else if (input.WasJustPressed(BUTTON.RELOAD) && player.GetActiveItem() == null && !player.isMounted) {
                 GetTargetEntity(player);
             }
         }
 
         void ToggleMiniLights(MiniCopter mini) {
             foreach (var light in mini.GetComponentsInChildren<SearchLight>()) {
-                ToggleLight(light);
+                ToggleFLight(light);
             }
         }
 
@@ -170,11 +172,11 @@ namespace Oxide.Plugins {
             ent.SendNetworkUpdateImmediate();
         }
 
-        void ToggleLight(BaseEntity ent) {
+        void ToggleFLight(BaseEntity ent) {
             ent.SetFlag(BaseEntity.Flags.On, !ent.IsOn());
             if (ent is SearchLight) {
-                (ent as SearchLight).secondsRemaining = 9999999999;
-                ResetSearchLight(ent as SearchLight);
+                SearchLight sl = ent as SearchLight;
+                sl.secondsRemaining = 9999999999;
             }
             ent.SendNetworkUpdateImmediate();
         }
@@ -194,7 +196,10 @@ namespace Oxide.Plugins {
             searchLight.SetFlag(BaseEntity.Flags.Reserved5, true, false, true);
             searchLight.SetParent(sph);
             searchLight.transform.localPosition = new Vector3(0, 0, 0);
-            ResetSearchLight(searchLight);
+            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 180));
+            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 0));
+            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 180));
+            Puts(searchLight.eyePoint.transform.position.ToString());
             searchLight._maxHealth = 99999999f;
             searchLight._health = 99999999f;
             searchLight.pickup.enabled = false;
@@ -207,10 +212,6 @@ namespace Oxide.Plugins {
             });
             sph.SendNetworkUpdateImmediate();
             //PrintComponents(searchLight);
-        }
-
-        void ResetSearchLight(SearchLight searchLight) {
-            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 180));
         }
 
         void AddLock(BaseEntity ent) {
@@ -463,7 +464,8 @@ namespace Oxide.Plugins {
 
         #region Configuration
 
-        private class MiniCopterOptionsConfig {
+        private class MiniCopterOptionsConfig
+        {
             // Populated with Rust defaults.
             public float fuelPerSec = 0.25f;
             public float liftFraction = 0.25f;
@@ -478,7 +480,7 @@ namespace Oxide.Plugins {
             public bool dropStorage = true;
             public bool largeStorageLockable = true;
             public int largeStorageSize = 42;
-            public int flyHackPause = 4;
+            public int flyHackPause = 1;
             public bool autoturret = false;
             public bool landOnCargo = true;
             public bool allowMiniPush = true;
@@ -535,7 +537,8 @@ namespace Oxide.Plugins {
 
         private MiniCopterOptionsConfig config;
 
-        struct MiniCopterDefaults {
+        struct MiniCopterDefaults
+        {
             public float fuelPerSecond;
             public float liftFraction;
             public Vector3 torqueScale;
@@ -619,7 +622,8 @@ namespace Oxide.Plugins {
         #endregion
 
         #region Classes
-        public class MiniShipLandingGear : MonoBehaviour {
+        public class MiniShipLandingGear : MonoBehaviour
+        {
             private MiniCopter miniCopter;
             private bool pCargo;
 
