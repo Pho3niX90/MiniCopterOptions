@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.3")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.31")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -586,7 +586,17 @@ namespace Oxide.Plugins
         #region Helpers
         private void GetTargetEntity(BasePlayer player) {
             bool flag = Physics.Raycast(player.eyes.HeadRay(), out raycastHit, 2f, Rust.Layers.Solid);
-            BaseEntity entity = raycastHit.GetEntity();
+            if (!flag) return;
+
+            BaseEntity entity;
+            try {
+                entity = raycastHit.GetEntity();
+            } catch (NullReferenceException nre) {
+                return;
+            }
+
+            if (entity == null) return;
+
             MiniCopter mini = ((entity is MiniCopter) ? entity : entity.GetParentEntity()) as MiniCopter;
 
             if (mini != null) {
