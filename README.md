@@ -1,6 +1,6 @@
 Allows for the configuration of additional Mini-Copter options, including the addition of storage containers to the Mini-Copter.
  
-#### If you like the plugin, don't forget to donate for further development, and to keep it free. 
+If you like the plugin, don't forget to donate for further development, and to keep it free. 
 [Donate here](http://https://umod.org/user/78yVj2xyGj/donate)
 
 * Increase the **Lift Fraction** to increase the take off speed.
