@@ -5,13 +5,11 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.31")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.33")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
-        static MiniCopterOptions _instance;
         bool lastRanAtNight;
-        RaycastHit raycastHit;
         #region Prefab Modifications
 
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
@@ -21,11 +19,8 @@ namespace Oxide.Plugins
         private readonly string searchLightPrefab = "assets/prefabs/deployable/search light/searchlight.deployed.prefab";
         private readonly string batteryPrefab = "assets/prefabs/deployable/playerioents/batteries/smallrechargablebattery.deployed.prefab";
         private readonly string flasherBluePrefab = "assets/prefabs/deployable/playerioents/lights/flasherlight/electric.flasherlight.deployed.prefab";
-        private readonly string flasherRedPrefab = "assets/prefabs/deployable/playerioents/lights/sirenlight/electric.sirenlight.deployed.prefab";
-        private readonly string strobePrefab = "assets/content/props/strobe light/strobelight.prefab";
         private readonly string lockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
         private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
-        private readonly string fxBoatPush = "assets/content/vehicles/boats/effects/small-boat-push-land.prefab";
 
         TOD_Sky time;
         float sunrise;
@@ -33,8 +28,6 @@ namespace Oxide.Plugins
         float lastCheck;
 
         void Loaded() {
-            _instance = this;
-
             if (config.lightTail) {
                 time = TOD_Sky.Instance;
                 sunrise = time.SunriseTime;
@@ -71,35 +64,20 @@ namespace Oxide.Plugins
             lastRanAtNight ^= true;
         }
 
-        void OnPlayerInput(BasePlayer player, InputState input) {
-            if (!config.addSearchLight || player == null || input == null) return;
-            if (player.isMounted) {
-                BaseVehicle vehicle = player.GetMountedVehicle();
-                if (vehicle != null && vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
-                    ToggleMiniLights(vehicle as MiniCopter);
-                }
-            } else if (input.WasJustPressed(BUTTON.RELOAD) && player.GetActiveItem() == null && !player.isMounted) {
-                GetTargetEntity(player);
-            }
-        }
-
         void ToggleMiniLights(MiniCopter mini) {
             foreach (var light in mini.GetComponentsInChildren<SearchLight>()) {
                 ToggleFLight(light);
             }
         }
 
-        void OnEntityDismounted(BaseMountable entity, BasePlayer player) {
-            if (config.flyHackPause > 0 && entity is MiniCopter)
+        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) { 
+            if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
                 player.PauseFlyHackDetection(config.flyHackPause);
         }
 
         object CanMountEntity(BasePlayer player, BaseMountable entity) {
             if (!(entity is MiniCopter) && !(entity.GetParentEntity() is MiniCopter)) return null;
-            if (player.serverInput.IsDown(BUTTON.FIRE_PRIMARY) || player.serverInput.WasDown(BUTTON.FIRE_PRIMARY)) {
-                GetTargetEntity(player);
-                return false;
-            }
+
             if (!IsBatEnabled()) return null;
             MiniCopter ent = entity.GetParentEntity() as MiniCopter;
             if (ent != null) {
@@ -176,7 +154,7 @@ namespace Oxide.Plugins
             ent.SetFlag(BaseEntity.Flags.On, !ent.IsOn());
             if (ent is SearchLight) {
                 SearchLight sl = ent as SearchLight;
-                sl.secondsRemaining = 9999999999;
+                //sl.secondsRemaining = 9999999999;
             }
             ent.SendNetworkUpdateImmediate();
         }
@@ -203,7 +181,7 @@ namespace Oxide.Plugins
             searchLight._maxHealth = 99999999f;
             searchLight._health = 99999999f;
             searchLight.pickup.enabled = false;
-            searchLight.isLockable = true;
+            //searchLight.isLockable = true;
             searchLight.SendNetworkUpdate();
             sph.transform.localScale += new Vector3(0.9f, 0, 0);
             sph.LerpRadiusTo(0.1f, 10f);
@@ -483,7 +461,6 @@ namespace Oxide.Plugins
             public int flyHackPause = 1;
             public bool autoturret = false;
             public bool landOnCargo = true;
-            public bool allowMiniPush = true;
             public bool autoturretBattery = true;
             public bool addSearchLight = true;
             public float turretRange = 30f;
@@ -512,7 +489,6 @@ namespace Oxide.Plugins
                 GetConfig(ref autoturretBattery, "Auto turret uses battery");
                 GetConfig(ref landOnCargo, "Allow Minis to Land on Cargo");
                 GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
-                GetConfig(ref allowMiniPush, "Allow minicopter push");
                 GetConfig(ref addSearchLight, "Light: Add Searchlight to heli");
                 GetConfig(ref lightTail, "Light: Add Nightitme Tail Light");
 
@@ -576,50 +552,12 @@ namespace Oxide.Plugins
         #endregion
 
         #region Chat Commands
-        [ChatCommand("push")]
-        private void PushMiniChatCommand(BasePlayer player, string command, string[] args) {
-            if (!config.allowMiniPush) return;
-            GetTargetEntity(player);
-        }
         #endregion
 
         #region Helpers
-        private void GetTargetEntity(BasePlayer player) {
-            bool flag = Physics.Raycast(player.eyes.HeadRay(), out raycastHit, 2f, Rust.Layers.Solid);
-            if (!flag) return;
 
-            BaseEntity entity;
-            try {
-                entity = raycastHit.GetEntity();
-            } catch (NullReferenceException nre) {
-                return;
-            }
-
-            if (entity == null) return;
-
-            MiniCopter mini = ((entity is MiniCopter) ? entity : entity.GetParentEntity()) as MiniCopter;
-
-            if (mini != null) {
-                PushMini(player, mini);
-                return;
-            }
-            SendReply(player, GetMsg("Err - Can only push minicopter"), GetEnglishName(entity.ShortPrefabName));
-        }
 
         private string GetEnglishName(string shortName) { return ItemManager.FindItemDefinition(shortName)?.displayName?.english ?? shortName; }
-
-        void PushMini(BasePlayer player, BaseVehicle bVehicle) {
-            //bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 15f, raycastHit.point, ForceMode.VelocityChange);
-
-            bVehicle.rigidBody.AddForceAtPosition(Vector3.up * 3.0f, raycastHit.point, ForceMode.VelocityChange);
-            //bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 5.5f, raycastHit.point, ForceMode.VelocityChange);
-            timer.Once(0.1f, () => {
-                bVehicle.rigidBody.AddForceAtPosition(Vector3.forward * 1f, raycastHit.point, ForceMode.VelocityChange);
-            });
-            player.metabolism.calories.Subtract(2f);
-            player.metabolism.SendChangesToClient();
-            Effect.server.Run(fxBoatPush, bVehicle.GetNetworkPosition());
-        }
 
         void PrintComponents(BaseEntity ent) {
             foreach (var sl in ent.GetComponents<Component>()) {
