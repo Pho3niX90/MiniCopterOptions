@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.35")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.36")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -26,16 +26,6 @@ namespace Oxide.Plugins
         float sunrise;
         float sunset;
         float lastCheck;
-
-        void OnServerInitialized(bool initial) { 
-            if (config.lightTail) {
-                time = TOD_Sky.Instance;
-                sunrise = time.SunriseTime;
-                sunset = time.SunsetTime;
-
-                time.Components.Time.OnHour += OnHour;
-            }
-        }
 
         void Unload() {
             foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
@@ -409,6 +399,14 @@ namespace Oxide.Plugins
 
         void OnServerInitialized() {
             PrintWarning("Applying settings except storage modifications to existing MiniCopters.");
+            if (config.lightTail) {
+                time = TOD_Sky.Instance;
+                sunrise = time.SunriseTime;
+                sunset = time.SunsetTime;
+
+                time.Components.Time.OnHour += OnHour;
+            }
+
             foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
                 // Nab the default values off the first minicopter.
                 if (copterDefaults.Equals(default(MiniCopterDefaults))) {
