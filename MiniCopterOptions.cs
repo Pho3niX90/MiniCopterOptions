@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.33")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.35")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -27,7 +27,7 @@ namespace Oxide.Plugins
         float sunset;
         float lastCheck;
 
-        void Loaded() {
+        void OnServerInitialized(bool initial) { 
             if (config.lightTail) {
                 time = TOD_Sky.Instance;
                 sunrise = time.SunriseTime;
@@ -62,6 +62,16 @@ namespace Oxide.Plugins
                 ToggleLight(mini.GetComponentInChildren<FlasherLight>());
             }
             lastRanAtNight ^= true;
+        }
+
+        void OnPlayerInput(BasePlayer player, InputState input) {
+            if (!config.addSearchLight || player == null || input == null) return;
+            if (player.isMounted) {
+                BaseVehicle vehicle = player.GetMountedVehicle();
+                if (vehicle != null && vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
+                    ToggleMiniLights(vehicle as MiniCopter);
+                }
+            }
         }
 
         void ToggleMiniLights(MiniCopter mini) {
@@ -154,7 +164,7 @@ namespace Oxide.Plugins
             ent.SetFlag(BaseEntity.Flags.On, !ent.IsOn());
             if (ent is SearchLight) {
                 SearchLight sl = ent as SearchLight;
-                //sl.secondsRemaining = 9999999999;
+                sl.UpdateHasPower(ent.IsOn() ?  10 : 0, 1);
             }
             ent.SendNetworkUpdateImmediate();
         }
@@ -170,13 +180,10 @@ namespace Oxide.Plugins
             DestroyMeshCollider(searchLight);
             DestroyGroundComp(searchLight);
             searchLight.Spawn();
-            searchLight.GetComponent<StorageContainer>().isLootable = false;
             searchLight.SetFlag(BaseEntity.Flags.Reserved5, true, false, true);
             searchLight.SetParent(sph);
             searchLight.transform.localPosition = new Vector3(0, 0, 0);
-            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 180));
-            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 0));
-            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(20, 0, 180));
+            searchLight.transform.localRotation = Quaternion.Euler(new Vector3(-20, 180, 180));
             Puts(searchLight.eyePoint.transform.position.ToString());
             searchLight._maxHealth = 99999999f;
             searchLight._health = 99999999f;
@@ -189,7 +196,6 @@ namespace Oxide.Plugins
                 sph.transform.localPosition = new Vector3(0, 0.24f, 1.8f);
             });
             sph.SendNetworkUpdateImmediate();
-            //PrintComponents(searchLight);
         }
 
         void AddLock(BaseEntity ent) {
