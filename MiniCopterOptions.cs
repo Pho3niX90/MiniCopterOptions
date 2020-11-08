@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.36")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.4")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -293,17 +293,23 @@ namespace Oxide.Plugins
             return ent.GetComponentInChildren<ElectricBattery>()?.inputs[0]?.connectedTo.ioEnt;
         }
 
-        private object OnSwitchToggle(ElectricSwitch eswitch, BasePlayer player) {
+        /* Credit to WhiteThunder. 
+         * This improves compatibility with other plugins as it allows them to block the switch from being toggled using the pre-hook.
+         */
+        private object OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player) {
             if (IsBatEnabled()) return null;
-            BaseEntity parent = eswitch.GetParentEntity();
-            if (parent != null && parent.PrefabName.Equals(autoturretPrefab)) {
-                AutoTurret turret = parent as AutoTurret;
-                if (turret == null) return null;
-                if (!eswitch.IsOn())
-                    PowerTurretOn(turret);
-                else
-                    PowerTurretOff(turret);
-            }
+
+            AutoTurret turret = electricSwitch.GetParentEntity() as AutoTurret;
+            if (turret == null) return null;
+
+            var mini = turret.GetParentEntity() as MiniCopter;
+            if (mini == null) return null;
+
+            if (electricSwitch.IsOn())
+                PowerTurretOn(turret);
+            else
+                PowerTurretOff(turret);
+
             return null;
         }
 
