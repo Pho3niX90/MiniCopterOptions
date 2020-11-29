@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.4")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.5")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -29,7 +29,7 @@ namespace Oxide.Plugins
 
         void Unload() {
             foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
-                RestoreMiniCopter(copter, config.reloadStorage);
+                if (config.restoreDefaults) RestoreMiniCopter(copter, config.reloadStorage);
                 if (config.landOnCargo) UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
             }
 
@@ -70,7 +70,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) { 
+        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
             if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
                 player.PauseFlyHackDetection(config.flyHackPause);
         }
@@ -90,14 +90,18 @@ namespace Oxide.Plugins
             return null;
         }
 
+        bool hasStorage(MiniCopter copter) => copter.GetComponentsInChildren<StorageContainer>().Any(x => x.name == storagePrefab || x.name == storageLargePrefab);
+
         void AddLargeStorageBox(MiniCopter copter) {
             //sides,negative left | up and down | in and out
+
             if (config.storageLargeContainers == 1) {
                 AddStorageBox(copter, storageLargePrefab, new Vector3(0.0f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
             } else if (config.storageLargeContainers >= 2) {
                 AddStorageBox(copter, storageLargePrefab, new Vector3(-0.48f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
                 AddStorageBox(copter, storageLargePrefab, new Vector3(0.48f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
             }
+
         }
 
         void AddRearStorageBox(MiniCopter copter) {
@@ -109,9 +113,7 @@ namespace Oxide.Plugins
             if (!IsBatEnabled()) AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
         }
 
-        void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) {
-            AddStorageBox(copter, prefab, position, new Quaternion());
-        }
+        void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) => AddStorageBox(copter, prefab, position, new Quaternion());
 
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position, Quaternion q) {
 
@@ -154,7 +156,7 @@ namespace Oxide.Plugins
             ent.SetFlag(BaseEntity.Flags.On, !ent.IsOn());
             if (ent is SearchLight) {
                 SearchLight sl = ent as SearchLight;
-                sl.UpdateHasPower(ent.IsOn() ?  10 : 0, 1);
+                sl.UpdateHasPower(ent.IsOn() ? 10 : 0, 1);
             }
             ent.SendNetworkUpdateImmediate();
         }
@@ -335,21 +337,21 @@ namespace Oxide.Plugins
             }
         }
 
+
+        // o.reload MiniCopterOptions
+
         void RestoreMiniCopter(MiniCopter copter, bool removeStorage = false) {
             copter.fuelPerSec = copterDefaults.fuelPerSecond;
             copter.liftFraction = copterDefaults.liftFraction;
             copter.torqueScale = copterDefaults.torqueScale;
             if (removeStorage) {
-                foreach (var child in copter.children) {
-                    if (child.name == storagePrefab || child.name == storageLargePrefab || child.name == autoturretPrefab) {
-                        copter.RemoveChild(child);
-                        child.Kill();
-                    }
-                }
+                foreach (var child in copter.children.FindAll(child => child.name == storagePrefab || child.name == storageLargePrefab || child.name == autoturretPrefab))
+                    child.Kill();
             }
         }
 
-        void ModifyMiniCopter(MiniCopter copter, bool storage = false) {
+        void ModifyMiniCopter(MiniCopter copter) {
+
             copter.fuelPerSec = config.fuelPerSec;
             copter.liftFraction = config.liftFraction;
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
@@ -360,9 +362,10 @@ namespace Oxide.Plugins
                 });
             }
 
-            if (storage) AddLargeStorageBox(copter);
+            //only add storage containers if non are found.
+            if (!hasStorage(copter)) {
+                AddLargeStorageBox(copter);
 
-            if (storage)
                 switch (config.storageContainers) {
                     case 1:
                         AddRearStorageBox(copter);
@@ -375,6 +378,8 @@ namespace Oxide.Plugins
                         AddSideStorageBoxes(copter);
                         break;
                 }
+            }
+
         }
 
         void StoreMiniCopterDefaults(MiniCopter copter) {
@@ -382,7 +387,7 @@ namespace Oxide.Plugins
                 copter.liftFraction = 0.25f;
                 copter.torqueScale = new Vector3(400f, 400f, 200f);
             }
-            Puts($"Defaults for copters saved as \nfuelPerSecond = {copter.fuelPerSec}\nliftFraction = {copter.liftFraction}\ntorqueScale = {copter.torqueScale}");
+            //Puts($"Defaults for copters saved as \nfuelPerSecond = {copter.fuelPerSec}\nliftFraction = {copter.liftFraction}\ntorqueScale = {copter.torqueScale}");
             copterDefaults = new MiniCopterDefaults {
                 fuelPerSecond = copter.fuelPerSec,
                 liftFraction = copter.liftFraction,
@@ -403,7 +408,7 @@ namespace Oxide.Plugins
             }
         }
 
-        void OnServerInitialized() {
+        void OnServerInitialized(bool init) {
             PrintWarning("Applying settings except storage modifications to existing MiniCopters.");
             if (config.lightTail) {
                 time = TOD_Sky.Instance;
@@ -414,24 +419,17 @@ namespace Oxide.Plugins
             }
 
             foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
-                // Nab the default values off the first minicopter.
-                if (copterDefaults.Equals(default(MiniCopterDefaults))) {
-                    StoreMiniCopterDefaults(copter);
-                    break;
-                }
-
-                if (config.landOnCargo) copter.gameObject.AddComponent<MiniShipLandingGear>();
-
-                ModifyMiniCopter(copter, config.reloadStorage);
+                ModifyMiniCopter(copter);
             }
         }
 
         void OnEntitySpawned(MiniCopter mini) {
             //PrintComponents(mini);
             if (mini.name.Contains("trans")) return;
+            StoreMiniCopterDefaults(mini);
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers. 
-            ModifyMiniCopter(mini, true);
+            ModifyMiniCopter(mini);
             if (config.landOnCargo) mini.gameObject.AddComponent<MiniShipLandingGear>();
             if (config.addSearchLight) AddSearchLight(mini);
             if (config.lightTail) AddFlightLigts(mini);
