@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.5")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.6")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -173,6 +173,7 @@ namespace Oxide.Plugins
             DestroyGroundComp(searchLight);
             searchLight.Spawn();
             searchLight.SetFlag(BaseEntity.Flags.Reserved5, true, false, true);
+            searchLight.SetFlag(BaseEntity.Flags.Busy, true);
             searchLight.SetParent(sph);
             searchLight.transform.localPosition = new Vector3(0, 0, 0);
             searchLight.transform.localRotation = Quaternion.Euler(new Vector3(-20, 180, 180));
