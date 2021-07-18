@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.6")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.7")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -28,7 +28,7 @@ namespace Oxide.Plugins
         float lastCheck;
 
         void Unload() {
-            foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
+            foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
                 if (config.restoreDefaults) RestoreMiniCopter(copter, config.reloadStorage);
                 if (config.landOnCargo) UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
             }
@@ -90,7 +90,9 @@ namespace Oxide.Plugins
             return null;
         }
 
-        bool hasStorage(MiniCopter copter) => copter.GetComponentsInChildren<StorageContainer>().Any(x => x.name == storagePrefab || x.name == storageLargePrefab);
+        StorageContainer[] GetStorage(MiniCopter copter) => copter.GetComponentsInChildren<StorageContainer>()
+            .Where(x => x.name == storagePrefab || x.name == storageLargePrefab)
+            .ToArray();
 
         void AddLargeStorageBox(MiniCopter copter) {
             //sides,negative left | up and down | in and out
@@ -115,22 +117,23 @@ namespace Oxide.Plugins
 
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) => AddStorageBox(copter, prefab, position, new Quaternion());
 
+        void SetupStorage(StorageContainer box) {
+            if (box.PrefabName.Equals(storageLargePrefab)) {
+                box.isLockable = config.largeStorageLockable;
+                box.inventory.capacity = config.largeStorageSize;
+                box.panelName = GetPanelName(config.largeStorageSize);
+            }
+        }
+
         void AddStorageBox(MiniCopter copter, string prefab, Vector3 position, Quaternion q) {
 
             StorageContainer box = GameManager.server.CreateEntity(prefab, copter.transform.position, q) as StorageContainer;
-
-            if (prefab.Equals(storageLargePrefab) && config.largeStorageLockable) {
-                box.isLockable = true;
-                box.panelName = GetPanelName(config.largeStorageSize);
-            }
 
             box.Spawn();
             box.SetParent(copter);
             box.transform.localPosition = position;
 
-            if (prefab.Equals(storageLargePrefab) && config.largeStorageLockable) {
-                box.inventory.capacity = config.largeStorageSize;
-            }
+            SetupStorage(box);
 
             box.SendNetworkUpdateImmediate(true);
         }
@@ -177,7 +180,6 @@ namespace Oxide.Plugins
             searchLight.SetParent(sph);
             searchLight.transform.localPosition = new Vector3(0, 0, 0);
             searchLight.transform.localRotation = Quaternion.Euler(new Vector3(-20, 180, 180));
-            Puts(searchLight.eyePoint.transform.position.ToString());
             searchLight._maxHealth = 99999999f;
             searchLight._health = 99999999f;
             searchLight.pickup.enabled = false;
@@ -186,7 +188,8 @@ namespace Oxide.Plugins
             sph.transform.localScale += new Vector3(0.9f, 0, 0);
             sph.LerpRadiusTo(0.1f, 10f);
             timer.Once(3f, () => {
-                sph.transform.localPosition = new Vector3(0, 0.24f, 1.8f);
+                if (sph != null)
+                    sph.transform.localPosition = new Vector3(0, 0.24f, 1.8f);
             });
             sph.SendNetworkUpdateImmediate();
         }
@@ -201,6 +204,11 @@ namespace Oxide.Plugins
             ent.SetSlot(BaseEntity.Slot.Lock, alock);
             alock.SetFlag(BaseEntity.Flags.Locked, true);
             alock.SendNetworkUpdateImmediate();
+        }
+
+        void SetupAutoTurret(AutoTurret turret) {
+            DestroyMeshCollider(turret);
+            DestroyGroundComp(turret);
         }
 
         void AddTurret(MiniCopter copter) {
@@ -357,14 +365,26 @@ namespace Oxide.Plugins
             copter.liftFraction = config.liftFraction;
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
 
-            if (config.autoturret && copter.GetComponentInChildren<AutoTurret>() == null) {
-                timer.Once(copter.isSpawned ? 0 : 0.2f, () => {
-                    AddTurret(copter);
-                });
+            if (config.autoturret) {
+                var turret = copter.GetComponentInChildren<AutoTurret>();
+                if (turret != null) {
+                    SetupAutoTurret(turret);
+                } else {
+                    timer.Once(copter.isSpawned ? 0 : 0.2f, () => {
+                        if (copter != null)
+                            AddTurret(copter);
+                    });
+                }
             }
 
-            //only add storage containers if non are found.
-            if (!hasStorage(copter)) {
+            var existingStorage = GetStorage(copter);
+            if (existingStorage.Length > 0) {
+                // Existing storage found, update its state and don't add any more storage.
+                foreach (var storage in existingStorage) {
+                    SetupStorage(storage);
+                }
+            } else {
+                // Add storage since none was found.
                 AddLargeStorageBox(copter);
 
                 switch (config.storageContainers) {
@@ -419,9 +439,11 @@ namespace Oxide.Plugins
                 time.Components.Time.OnHour += OnHour;
             }
 
-            foreach (var copter in UnityEngine.Object.FindObjectsOfType<MiniCopter>()) {
+            foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
                 ModifyMiniCopter(copter);
             }
+
+            Subscribe(nameof(OnEntitySpawned));
         }
 
         void OnEntitySpawned(MiniCopter mini) {
@@ -556,6 +578,8 @@ namespace Oxide.Plugins
             } else if (config.largeStorageSize < 6) {
                 PrintWarning($"Storage Containers Capacity cannot be a smaller than 6, setting to 6.");
             }
+
+            Unsubscribe(nameof(OnEntitySpawned));
         }
 
         #endregion
