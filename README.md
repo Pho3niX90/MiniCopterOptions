@@ -45,3 +45,4 @@ The default configuration mimics the default Rust values.
 ## Credits:
 
 * **Diametric**, the original plugin author
+* **WhiteThunder**, active maintainer
