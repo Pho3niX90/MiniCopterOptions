@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.8")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.9")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -492,13 +492,20 @@ namespace Oxide.Plugins
 
         #region Hooks
 
-        void OnItemDeployed(Deployer deployer, BaseEntity entity) {
-            if (entity?.GetParentEntity() != null && (entity.GetParentEntity() is MiniCopter)) {
-                CodeLock cLock = entity.GetComponentInChildren<CodeLock>();
-                cLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
-                cLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
-                cLock.SendNetworkUpdateImmediate();
-            }
+        void OnItemDeployed(Deployer deployer, StorageContainer container, BaseLock baseLock) {
+            if (container == null || baseLock == null)
+                return;
+
+            var parent = container.GetParentEntity();
+            if (parent == null || !(parent is MiniCopter) || parent is ScrapTransportHelicopter)
+                return;
+
+            if (container.PrefabName != storageLargePrefab)
+                return;
+
+            baseLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
+            baseLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
+            baseLock.SendNetworkUpdateImmediate();
         }
 
         void OnServerInitialized(bool init) {
