@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.8")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.0.9")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -21,6 +21,8 @@ namespace Oxide.Plugins
         private readonly string flasherBluePrefab = "assets/prefabs/deployable/playerioents/lights/flasherlight/electric.flasherlight.deployed.prefab";
         private readonly string lockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
         private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
+
+        private const string resizableLootPanelName = "generic_resizable";
 
         TOD_Sky time;
         float sunrise;
@@ -145,7 +147,7 @@ namespace Oxide.Plugins
             if (box.PrefabName.Equals(storageLargePrefab)) {
                 box.isLockable = config.largeStorageLockable;
                 box.inventory.capacity = config.largeStorageSize;
-                box.panelName = GetPanelName(config.largeStorageSize);
+                box.panelName = resizableLootPanelName;
             }
         }
 
@@ -361,18 +363,6 @@ namespace Oxide.Plugins
             } else {
                 turret.SetFlag(IOEntity.Flag_HasPower, false);
                 turret.InitiateShutdown();
-            }
-        }
-
-        string GetPanelName(int capacity) {
-            if (capacity <= 6) {
-                return "smallstash";
-            } else if (capacity > 6 && capacity <= 12) {
-                return "smallwoodbox";
-            } else if (capacity > 12 && capacity <= 30) {
-                return "largewoodbox";
-            } else {
-                return "genericlarge";
             }
         }
 
