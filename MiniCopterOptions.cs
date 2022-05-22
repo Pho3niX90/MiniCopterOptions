@@ -71,22 +71,37 @@ namespace Oxide.Plugins
             lastRanAtNight ^= true;
         }
 
-        void OnPlayerInput(BasePlayer player, InputState input) {
-            if (!config.addSearchLight || player == null || input == null)
-                return;
+        object OnServerCommand(ConsoleSystem.Arg arg)
+        {
+            if (arg.Connection == null || arg.cmd.FullName != "inventory.lighttoggle")
+                return null;
 
-            if (player.isMounted) {
-                BaseVehicle vehicle = player.GetMountedVehicle();
-                if (vehicle != null && vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
-                    ToggleMiniLights(vehicle as MiniCopter);
+            var player = arg.Player();
+            if (player == null)
+                return null;
+
+            var mini = player.GetMountedVehicle() as MiniCopter;
+            if (mini == null)
+                return null;
+
+            foreach (var child in mini.children) {
+                var sphere = child as SphereEntity;
+                if ((object)sphere == null)
+                    continue;
+
+                foreach (var grandChild in sphere.children) {
+                    var light = grandChild as SearchLight;
+                    if ((object)light == null)
+                        continue;
+
+                    light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
+
+                    // Prevent other lights from toggling.
+                    return false;
                 }
             }
-        }
 
-        void ToggleMiniLights(MiniCopter mini) {
-            foreach (var light in mini.GetComponentsInChildren<SearchLight>()) {
-                light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
-            }
+            return null;
         }
 
         private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
@@ -508,6 +523,9 @@ namespace Oxide.Plugins
 
                 time.Components.Time.OnHour += OnHour;
             }
+
+            if (!config.addSearchLight)
+                Unsubscribe(nameof(OnServerCommand));
 
             foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
                 OnEntitySpawned(copter);
