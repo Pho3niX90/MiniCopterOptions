@@ -24,12 +24,16 @@ namespace Oxide.Plugins
 
         private const string resizableLootPanelName = "generic_resizable";
 
+        int setupTimeHooksAttempts;
         TOD_Sky time;
         float sunrise;
         float sunset;
         float lastNightCheck;
 
         bool IsNight() {
+            if (time == null)
+                return false;
+
             float hour = time.Cycle.Hour;
             return hour > sunset || hour < sunrise;
         }
@@ -55,6 +59,25 @@ namespace Oxide.Plugins
             }
 
             lastRanAtNight ^= true;
+        }
+
+        void SetupTimeHooks() {
+            time = TOD_Sky.Instance;
+
+            if (time == null) {
+                if (setupTimeHooksAttempts++ >= 10) {
+                    PrintError("Unable to detect time system. Tail light will not follow time of day.");;
+                    return;
+                }
+
+                timer.Once(1, SetupTimeHooks);
+                return;
+            }
+
+            sunrise = time.SunriseTime;
+            sunset = time.SunsetTime;
+
+            time.Components.Time.OnHour += OnHour;
         }
 
         StorageContainer[] GetStorage(MiniCopter copter) => copter.GetComponentsInChildren<StorageContainer>()
@@ -431,11 +454,7 @@ namespace Oxide.Plugins
             PrintWarning("Applying settings except storage modifications to existing MiniCopters.");
 
             if (config.lightTail) {
-                time = TOD_Sky.Instance;
-                sunrise = time.SunriseTime;
-                sunset = time.SunsetTime;
-
-                time.Components.Time.OnHour += OnHour;
+                SetupTimeHooks();
             }
 
             if (!config.addSearchLight)
@@ -457,7 +476,7 @@ namespace Oxide.Plugins
                     UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
             }
 
-            if (config.lightTail) {
+            if (config.lightTail && time != null) {
                 time.Components.Time.OnHour -= OnHour;
             }
         }
