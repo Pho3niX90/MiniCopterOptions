@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.0.9")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.1.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -24,26 +24,16 @@ namespace Oxide.Plugins
 
         private const string resizableLootPanelName = "generic_resizable";
 
+        int setupTimeHooksAttempts;
         TOD_Sky time;
         float sunrise;
         float sunset;
         float lastNightCheck;
 
-        void Unload() {
-            foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
-                if (config.restoreDefaults)
-                    RestoreMiniCopter(copter, config.reloadStorage);
-
-                if (config.landOnCargo)
-                    UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
-            }
-
-            if (config.lightTail) {
-                time.Components.Time.OnHour -= OnHour;
-            }
-        }
-
         bool IsNight() {
+            if (time == null)
+                return false;
+
             float hour = time.Cycle.Hour;
             return hour > sunset || hour < sunrise;
         }
@@ -71,45 +61,23 @@ namespace Oxide.Plugins
             lastRanAtNight ^= true;
         }
 
-        void OnPlayerInput(BasePlayer player, InputState input) {
-            if (!config.addSearchLight || player == null || input == null)
+        void SetupTimeHooks() {
+            time = TOD_Sky.Instance;
+
+            if (time == null) {
+                if (setupTimeHooksAttempts++ >= 10) {
+                    PrintError("Unable to detect time system. Tail light will not follow time of day.");;
+                    return;
+                }
+
+                timer.Once(1, SetupTimeHooks);
                 return;
-
-            if (player.isMounted) {
-                BaseVehicle vehicle = player.GetMountedVehicle();
-                if (vehicle != null && vehicle is MiniCopter && input.WasJustPressed(BUTTON.USE)) {
-                    ToggleMiniLights(vehicle as MiniCopter);
-                }
             }
-        }
 
-        void ToggleMiniLights(MiniCopter mini) {
-            foreach (var light in mini.GetComponentsInChildren<SearchLight>()) {
-                light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
-            }
-        }
+            sunrise = time.SunriseTime;
+            sunset = time.SunsetTime;
 
-        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
-            if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
-                player.PauseFlyHackDetection(config.flyHackPause);
-        }
-
-        bool? CanMountEntity(BasePlayer player, BaseMountable entity) {
-            if (!(entity is MiniCopter) && !(entity.GetParentEntity() is MiniCopter))
-                return null;
-
-            if (!IsBatteryEnabled())
-                return null;
-
-            MiniCopter ent = entity.GetParentEntity() as MiniCopter;
-            if (ent != null) {
-                IOEntity ioe = GetBatteryConnected(ent);
-                if (ioe != null) {
-                    SendReply(player, GetMsg("Err - Diconnect Battery"), ioe.GetDisplayName());
-                    return false;
-                }
-            }
-            return null;
+            time.Components.Time.OnHour += OnHour;
         }
 
         StorageContainer[] GetStorage(MiniCopter copter) => copter.GetComponentsInChildren<StorageContainer>()
@@ -482,38 +450,35 @@ namespace Oxide.Plugins
 
         #region Hooks
 
-        void OnItemDeployed(Deployer deployer, StorageContainer container, BaseLock baseLock) {
-            if (container == null || baseLock == null)
-                return;
-
-            var parent = container.GetParentEntity();
-            if (parent == null || !(parent is MiniCopter) || parent is ScrapTransportHelicopter)
-                return;
-
-            if (container.PrefabName != storageLargePrefab)
-                return;
-
-            baseLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
-            baseLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
-            baseLock.SendNetworkUpdateImmediate();
-        }
-
         void OnServerInitialized(bool init) {
             PrintWarning("Applying settings except storage modifications to existing MiniCopters.");
 
             if (config.lightTail) {
-                time = TOD_Sky.Instance;
-                sunrise = time.SunriseTime;
-                sunset = time.SunsetTime;
-
-                time.Components.Time.OnHour += OnHour;
+                SetupTimeHooks();
             }
+
+            if (!config.addSearchLight)
+                Unsubscribe(nameof(OnServerCommand));
 
             foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
                 OnEntitySpawned(copter);
             }
 
             Subscribe(nameof(OnEntitySpawned));
+        }
+
+        void Unload() {
+            foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
+                if (config.restoreDefaults)
+                    RestoreMiniCopter(copter, config.reloadStorage);
+
+                if (config.landOnCargo)
+                    UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
+            }
+
+            if (config.lightTail && time != null) {
+                time.Components.Time.OnHour -= OnHour;
+            }
         }
 
         void OnEntitySpawned(MiniCopter copter) {
@@ -543,6 +508,77 @@ namespace Oxide.Plugins
             foreach (AutoTurret turret in turrets) {
                 turret.DropItems();
             }
+        }
+
+        object OnServerCommand(ConsoleSystem.Arg arg) {
+            if (arg.Connection == null || arg.cmd.FullName != "inventory.lighttoggle")
+                return null;
+
+            var player = arg.Player();
+            if (player == null)
+                return null;
+
+            var mini = player.GetMountedVehicle() as MiniCopter;
+            if (mini == null)
+                return null;
+
+            foreach (var child in mini.children) {
+                var sphere = child as SphereEntity;
+                if ((object)sphere == null)
+                    continue;
+
+                foreach (var grandChild in sphere.children) {
+                    var light = grandChild as SearchLight;
+                    if ((object)light == null)
+                        continue;
+
+                    light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
+
+                    // Prevent other lights from toggling.
+                    return false;
+                }
+            }
+
+            return null;
+        }
+
+        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
+            if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
+                player.PauseFlyHackDetection(config.flyHackPause);
+        }
+
+        bool? CanMountEntity(BasePlayer player, BaseMountable entity) {
+            if (!(entity is MiniCopter) && !(entity.GetParentEntity() is MiniCopter))
+                return null;
+
+            if (!IsBatteryEnabled())
+                return null;
+
+            MiniCopter ent = entity.GetParentEntity() as MiniCopter;
+            if (ent != null) {
+                IOEntity ioe = GetBatteryConnected(ent);
+                if (ioe != null) {
+                    SendReply(player, GetMsg("Err - Diconnect Battery"), ioe.GetDisplayName());
+                    return false;
+                }
+            }
+            return null;
+        }
+
+        void OnItemDeployed(Deployer deployer, StorageContainer container, BaseLock baseLock) {
+            if (container == null || baseLock == null)
+                return;
+
+            var parent = container.GetParentEntity();
+            if (parent == null || !(parent is MiniCopter) || parent is ScrapTransportHelicopter)
+                return;
+
+            if (container.PrefabName != storageLargePrefab)
+                return;
+
+            baseLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
+            baseLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
+            baseLock.SendNetworkUpdateImmediate();
         }
 
         #endregion
