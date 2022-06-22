@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.1.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.1.1")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : RustPlugin
     {
@@ -151,6 +151,7 @@ namespace Oxide.Plugins
 
         void SetupSphereEntity(SphereEntity sphereEntity) {
             sphereEntity.EnableSaving(true);
+            sphereEntity.EnableGlobalBroadcast(false);
         }
 
         void SetupSearchLight(SearchLight searchLight) {
