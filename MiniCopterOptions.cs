@@ -26,6 +26,8 @@ namespace Oxide.Plugins
 
         private const string resizableLootPanelName = "generic_resizable";
 
+        private object False = false;
+
         int setupTimeHooksAttempts;
         TOD_Sky time;
         float sunrise;
@@ -309,34 +311,6 @@ namespace Oxide.Plugins
             return ent.GetComponentInChildren<ElectricBattery>()?.inputs[0]?.connectedTo.ioEnt;
         }
 
-        private void OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player) {
-            if (IsBatteryEnabled())
-            {
-                // Do nothing since the switch is supposed to be wired into the turret,
-                // so the game should handle this automatically.
-                return;
-            }
-
-            AutoTurret turret = electricSwitch.GetParentEntity() as AutoTurret;
-            if (turret == null)
-                return;
-
-            var mini = turret.GetParentEntity() as MiniCopter;
-            if (mini == null)
-            {
-                // Ignore if the turret isn't on a mini, to avoid plugin conflicts.
-                return;
-            }
-
-            if (electricSwitch.IsOn()) {
-                turret.SetFlag(IOEntity.Flag_HasPower, true);
-                turret.InitiateStartup();
-            } else {
-                turret.SetFlag(IOEntity.Flag_HasPower, false);
-                turret.InitiateShutdown();
-            }
-        }
-
         void FixScrapHeliIfNeeded(ScrapTransportHelicopter scrapHeli) {
             if (scrapHeli.torqueScale != copterDefaults.torqueScale)
                 return;
@@ -533,6 +507,51 @@ namespace Oxide.Plugins
             }
         }
 
+        void OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player) {
+            if (IsBatteryEnabled())
+            {
+                // Do nothing since the switch is supposed to be wired into the turret,
+                // so the game should handle this automatically.
+                return;
+            }
+
+            AutoTurret turret = electricSwitch.GetParentEntity() as AutoTurret;
+            if (turret == null)
+                return;
+
+            var mini = turret.GetParentEntity() as MiniCopter;
+            if (mini == null)
+            {
+                // Ignore if the turret isn't on a mini, to avoid plugin conflicts.
+                return;
+            }
+
+            if (electricSwitch.IsOn()) {
+                turret.SetFlag(IOEntity.Flag_HasPower, true);
+                turret.InitiateStartup();
+            } else {
+                turret.SetFlag(IOEntity.Flag_HasPower, false);
+                turret.InitiateShutdown();
+            }
+        }
+
+        object OnTurretTarget(AutoTurret turret, BaseCombatEntity target) {
+            if (target == null)
+                return null;
+
+            var mini = turret.GetParentEntity() as MiniCopter;
+            if ((object)mini == null || mini is ScrapTransportHelicopter)
+                return null;
+
+            var basePlayer = target as BasePlayer;
+            if ((object)basePlayer != null) {
+                if (basePlayer.InSafeZone() && (basePlayer.IsNpc || !basePlayer.IsHostile()))
+                    return False;
+            }
+
+            return null;
+        }
+
         object OnServerCommand(ConsoleSystem.Arg arg) {
             if (arg.Connection == null || arg.cmd.FullName != "inventory.lighttoggle")
                 return null;
@@ -558,19 +577,19 @@ namespace Oxide.Plugins
                     light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
 
                     // Prevent other lights from toggling.
-                    return false;
+                    return False;
                 }
             }
 
             return null;
         }
 
-        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
+        void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
             if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
                 player.PauseFlyHackDetection(config.flyHackPause);
         }
 
-        bool? CanMountEntity(BasePlayer player, BaseMountable entity) {
+        object CanMountEntity(BasePlayer player, BaseMountable entity) {
             if (!(entity is MiniCopter) && !(entity.GetParentEntity() is MiniCopter))
                 return null;
 
@@ -582,7 +601,7 @@ namespace Oxide.Plugins
                 IOEntity ioe = GetBatteryConnected(ent);
                 if (ioe != null) {
                     SendReply(player, GetMsg("Err - Diconnect Battery"), ioe.GetDisplayName());
-                    return false;
+                    return False;
                 }
             }
             return null;
@@ -716,6 +735,10 @@ namespace Oxide.Plugins
             }
 
             Unsubscribe(nameof(OnEntitySpawned));
+
+            if (!config.autoturret) {
+                Unsubscribe(nameof(OnTurretTarget));
+            }
         }
 
         #endregion
