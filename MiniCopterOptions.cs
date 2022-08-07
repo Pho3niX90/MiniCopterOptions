@@ -12,6 +12,7 @@ namespace Oxide.Plugins
         bool lastRanAtNight;
         #region Prefab Modifications
 
+        private readonly string minicopterPrefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
         private readonly string storageLargePrefab = "assets/content/vehicles/boats/rhib/subents/rhib_storage.prefab";
         private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
@@ -430,14 +431,10 @@ namespace Oxide.Plugins
             }
         }
 
-        void StoreMiniCopterDefaults(MiniCopter copter) {
-            if (copterDefaults != null)
+        void StoreMiniCopterDefaults() {
+            var copter = GameManager.server.FindPrefab(minicopterPrefab)?.GetComponent<MiniCopter>();
+            if (copter == null)
                 return;
-
-            if (copter.liftFraction == 0 || copter.torqueScale.x == 0 || copter.torqueScale.y == 0 || copter.torqueScale.z == 0) {
-                copter.liftFraction = 0.25f;
-                copter.torqueScale = new Vector3(400f, 400f, 200f);
-            }
 
             //Puts($"Defaults for copters saved as \nfuelPerSecond = {copter.fuelPerSec}\nliftFraction = {copter.liftFraction}\ntorqueScale = {copter.torqueScale}");
             copterDefaults = new MiniCopterDefaults {
@@ -452,7 +449,7 @@ namespace Oxide.Plugins
         #region Hooks
 
         void OnServerInitialized(bool init) {
-            PrintWarning("Applying settings except storage modifications to existing MiniCopters.");
+            StoreMiniCopterDefaults();
 
             if (config.lightTail) {
                 SetupTimeHooks();
@@ -485,8 +482,6 @@ namespace Oxide.Plugins
         void OnEntitySpawned(MiniCopter copter) {
             if (copter is ScrapTransportHelicopter)
                 return;
-
-            StoreMiniCopterDefaults(copter);
 
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers.
