@@ -1,5 +1,5 @@
-Allows for the configuration of additional Mini-Copter options, including the addition of storage containers to the Mini-Copter. 
- 
+Allows for the configuration of additional Mini-Copter options, including the addition of storage containers to the Mini-Copter.
+
 If you like the plugin, don't forget to donate for further development, and to keep it free.  [Donate here](http://https://umod.org/user/78yVj2xyGj/donate)
 
 * Increase the **Lift Fraction** to increase the take off speed.
@@ -8,7 +8,7 @@ If you like the plugin, don't forget to donate for further development, and to k
 
 Set **Restore Defaults** to true to restore the default movement and fuel consumption values on plugin unload.   Storage Containers will remain unless **Reload Storage** is set to true. **Warning:** Unloading or reloading the plugin with **Reload Storage** set to **true** will destroy any player items contained in the Mini-Copter storage stashes.
 
-**Warning about high *Lift Fraction* values:** Setting a high lift fraction can increase the risk of FlyHack kicks when a player has crashed the Mini-Copter. **Seconds to pause flyhack when dismount from heli.:** should solve the issue. 
+**Warning about high *Lift Fraction* values:** Setting a high lift fraction can increase the risk of FlyHack kicks when a player has crashed the Mini-Copter. **Seconds to pause flyhack when dismount from heli.:** should solve the issue.
 
 ## Key binds
 * The pilot can turn the search light on and off with **USE** key
@@ -20,8 +20,6 @@ The default configuration mimics the default Rust values.
 ```json
 {
   "Add auto turret to heli": false,
-  "Allow minicopter push": true,
-  "Allow Minis to Land on Cargo": true,
   "Auto turret uses battery": true,
   "Drop Storage Loot On Death": true,
   "Fuel per Second": 0.25,
