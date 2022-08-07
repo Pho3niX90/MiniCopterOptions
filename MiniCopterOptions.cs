@@ -473,9 +473,6 @@ namespace Oxide.Plugins
                 foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
                     if (config.restoreDefaults)
                         RestoreMiniCopter(copter, config.reloadStorage);
-
-                    if (config.landOnCargo)
-                        UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
                 }
             }
         }
@@ -487,9 +484,6 @@ namespace Oxide.Plugins
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers.
             ModifyMiniCopter(copter);
-
-            if (config.landOnCargo)
-                copter.gameObject.AddComponent<MiniShipLandingGear>();
         }
 
         void OnEntityKill(BaseNetworkable entity) {
@@ -648,7 +642,6 @@ namespace Oxide.Plugins
             public int largeStorageSize = 42;
             public int flyHackPause = 1;
             public bool autoturret = false;
-            public bool landOnCargo = true;
             public bool autoturretBattery = true;
             public bool addSearchLight = true;
             public float turretRange = 30f;
@@ -675,7 +668,6 @@ namespace Oxide.Plugins
                 GetConfig(ref flyHackPause, "Seconds to pause flyhack when dismount from heli.");
                 GetConfig(ref autoturret, "Add auto turret to heli");
                 GetConfig(ref autoturretBattery, "Auto turret uses battery");
-                GetConfig(ref landOnCargo, "Allow Minis to Land on Cargo");
                 GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
                 GetConfig(ref addSearchLight, "Light: Add Searchlight to heli");
                 GetConfig(ref lightTail, "Light: Add Nightitme Tail Light");
@@ -756,39 +748,6 @@ namespace Oxide.Plugins
                 foreach (var s in sl.GetComponentsInChildren<Component>()) {
                     Puts($"-C- {s.GetType().Name} | {s.name}");
                 }
-            }
-        }
-
-        #endregion
-
-        #region Classes
-
-        public class MiniShipLandingGear : MonoBehaviour
-        {
-            private MiniCopter miniCopter;
-            private bool pCargo;
-
-            void Awake() {
-                miniCopter = GetComponent<MiniCopter>();
-            }
-
-            void OnTriggerEnter(Collider collider) {
-                if (!collider.isTrigger || !(collider.ToBaseEntity() is CargoShip) || pCargo)
-                    return;
-
-                ParentTo(miniCopter, collider.ToBaseEntity());
-            }
-
-            void OnTriggerExit(Collider collider) {
-                if (!collider.isTrigger || !(collider.ToBaseEntity() is CargoShip) || !pCargo)
-                    return;
-
-                ParentTo(miniCopter, null);
-            }
-
-            void ParentTo(MiniCopter mini, BaseEntity parent) {
-                mini.SetParent(parent, true);
-                pCargo ^= true;
             }
         }
 
