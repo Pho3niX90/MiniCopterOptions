@@ -564,6 +564,9 @@ namespace Oxide.Plugins
             if (mini == null)
                 return null;
 
+            if (!mini.IsDriver(player))
+                return null;
+
             foreach (var child in mini.children) {
                 var sphere = child as SphereEntity;
                 if ((object)sphere == null)
