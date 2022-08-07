@@ -13,6 +13,7 @@ namespace Oxide.Plugins
         #region Prefab Modifications
 
         private readonly string minicopterPrefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
+        private readonly string scrapHeliPrefab = "assets/content/vehicles/scrap heli carrier/scraptransporthelicopter.prefab";
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
         private readonly string storageLargePrefab = "assets/content/vehicles/boats/rhib/subents/rhib_storage.prefab";
         private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
@@ -336,7 +337,23 @@ namespace Oxide.Plugins
             }
         }
 
+        void FixScrapHeliIfNeeded(ScrapTransportHelicopter scrapHeli) {
+            if (scrapHeli.torqueScale != copterDefaults.torqueScale)
+                return;
+
+            var scrapHeliTemplate = GameManager.server.FindPrefab(scrapHeliPrefab)?.GetComponent<ScrapTransportHelicopter>();
+            if (scrapHeliTemplate == null)
+                return;
+
+            scrapHeli.fuelPerSec = scrapHeliTemplate.fuelPerSec;
+            scrapHeli.liftFraction = scrapHeliTemplate.liftFraction;
+            scrapHeli.torqueScale = scrapHeliTemplate.torqueScale;
+        }
+
         void RestoreMiniCopter(MiniCopter copter, bool removeStorage = false) {
+            if (copter is ScrapTransportHelicopter)
+                return;
+
             if (copterDefaults != null) {
                 copter.fuelPerSec = copterDefaults.fuelPerSecond;
                 copter.liftFraction = copterDefaults.liftFraction;
@@ -460,22 +477,32 @@ namespace Oxide.Plugins
 
             foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
                 OnEntitySpawned(copter);
+
+                var scrapHeli = copter as ScrapTransportHelicopter;
+                if ((object)scrapHeli != null) {
+                    // A previous version of the plugin would set scrap helis to minicopter values on Unload,
+                    // so fix them when the plugin loads if needed.
+                    FixScrapHeliIfNeeded(scrapHeli);
+                }
             }
 
             Subscribe(nameof(OnEntitySpawned));
         }
 
         void Unload() {
-            foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
-                if (config.restoreDefaults)
-                    RestoreMiniCopter(copter, config.reloadStorage);
-
-                if (config.landOnCargo)
-                    UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
-            }
-
             if (config.lightTail && time != null) {
                 time.Components.Time.OnHour -= OnHour;
+            }
+
+            // If the plugin is unloaded before OnServerInitialized() ran, don't revert minicopters to 0 values.
+            if (copterDefaults != default(MiniCopterDefaults)) {
+                foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
+                    if (config.restoreDefaults)
+                        RestoreMiniCopter(copter, config.reloadStorage);
+
+                    if (config.landOnCargo)
+                        UnityEngine.Object.Destroy(copter.GetComponent<MiniShipLandingGear>());
+                }
             }
         }
 
