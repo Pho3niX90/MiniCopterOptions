@@ -1,3 +1,6 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -5,11 +8,10 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.1.2")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.2.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
-    class MiniCopterOptions : RustPlugin
+    class MiniCopterOptions : CovalencePlugin
     {
-        bool lastRanAtNight;
         #region Prefab Modifications
 
         private readonly string minicopterPrefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
@@ -25,14 +27,50 @@ namespace Oxide.Plugins
         private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
 
         private const string resizableLootPanelName = "generic_resizable";
+        private const int MinStorageCapacity = 6;
+        private const int MaxStorageCapacity = 48;
 
-        private object False = false;
+        private readonly object False = false;
 
-        int setupTimeHooksAttempts;
-        TOD_Sky time;
-        float sunrise;
-        float sunset;
-        float lastNightCheck;
+        private Configuration config;
+        private MiniCopterDefaults copterDefaults;
+        private bool lastRanAtNight;
+        private int setupTimeHooksAttempts;
+        private TOD_Sky time;
+        private float sunrise;
+        private float sunset;
+        private float lastNightCheck;
+
+        void Init() {
+            if (config.storageContainers > 3) {
+                PrintWarning($"Storage Containers configuration value {config.storageContainers} exceeds the maximum, setting to 3.");
+                config.storageContainers = 3;
+            } else if (config.storageContainers < 0) {
+                PrintWarning($"Storage Containers cannot be a negative value, setting to 0.");
+                config.storageContainers = 0;
+            }
+
+            if (config.storageLargeContainers > 2) {
+                PrintWarning($"Large Storage Containers configuration value {config.storageLargeContainers} exceeds the maximum, setting to 2.");
+                config.storageLargeContainers = 2;
+            } else if (config.storageLargeContainers < 0) {
+                PrintWarning($"Large Storage Containers cannot be a negative value, setting to 0.");
+                config.storageLargeContainers = 0;
+            }
+
+            if (config.largeStorageSize > MaxStorageCapacity) {
+                PrintWarning($"Large Storage Containers Capacity configuration value {config.largeStorageSize} exceeds the maximum, setting to {MaxStorageCapacity}.");
+                config.largeStorageSize = MaxStorageCapacity;
+            } else if (config.largeStorageSize < MinStorageCapacity) {
+                PrintWarning($"Storage Containers Capacity cannot be a smaller than {MinStorageCapacity}, setting to {MinStorageCapacity}.");
+            }
+
+            Unsubscribe(nameof(OnEntitySpawned));
+
+            if (!config.autoturret) {
+                Unsubscribe(nameof(OnTurretTarget));
+            }
+        }
 
         bool IsNight() {
             if (time == null)
@@ -593,11 +631,11 @@ namespace Oxide.Plugins
             if (!IsBatteryEnabled())
                 return null;
 
-            MiniCopter ent = entity.GetParentEntity() as MiniCopter;
-            if (ent != null) {
-                IOEntity ioe = GetBatteryConnected(ent);
-                if (ioe != null) {
-                    SendReply(player, GetMsg("Err - Diconnect Battery"), ioe.GetDisplayName());
+            MiniCopter mini = entity.GetParentEntity() as MiniCopter;
+            if (mini != null) {
+                IOEntity battery = GetBatteryConnected(mini);
+                if (battery != null) {
+                    player.ChatMessage(string.Format(GetMsg("Err - Diconnect Battery", player.UserIDString), battery.GetDisplayName()));
                     return False;
                 }
             }
@@ -624,76 +662,6 @@ namespace Oxide.Plugins
 
         #region Configuration
 
-        private class MiniCopterOptionsConfig
-        {
-            // Populated with Rust defaults.
-            public float fuelPerSec = 0.25f;
-            public float liftFraction = 0.25f;
-            public float torqueScalePitch = 400f;
-            public float torqueScaleYaw = 400f;
-            public float torqueScaleRoll = 200f;
-
-            public int storageContainers = 0;
-            public int storageLargeContainers = 0;
-            public bool restoreDefaults = true;
-            public bool reloadStorage = false;
-            public bool dropStorage = true;
-            public bool largeStorageLockable = true;
-            public int largeStorageSize = 42;
-            public int flyHackPause = 1;
-            public bool autoturret = false;
-            public bool autoturretBattery = true;
-            public bool addSearchLight = true;
-            public float turretRange = 30f;
-            public bool lightTail = false;
-
-            // Plugin reference
-            private MiniCopterOptions plugin;
-
-            public MiniCopterOptionsConfig(MiniCopterOptions plugin) {
-                this.plugin = plugin;
-
-                GetConfig(ref fuelPerSec, "Fuel per Second");
-                GetConfig(ref liftFraction, "Lift Fraction");
-                GetConfig(ref torqueScalePitch, "Pitch Torque Scale");
-                GetConfig(ref torqueScaleYaw, "Yaw Torque Scale");
-                GetConfig(ref torqueScaleRoll, "Roll Torque Scale");
-                GetConfig(ref storageContainers, "Storage Containers");
-                GetConfig(ref storageLargeContainers, "Large Storage Containers");
-                GetConfig(ref restoreDefaults, "Restore Defaults");
-                GetConfig(ref reloadStorage, "Reload Storage");
-                GetConfig(ref dropStorage, "Drop Storage Loot On Death");
-                GetConfig(ref largeStorageLockable, "Large Storage Lockable");
-                GetConfig(ref largeStorageSize, "Large Storage Size (Max 42)");
-                GetConfig(ref flyHackPause, "Seconds to pause flyhack when dismount from heli.");
-                GetConfig(ref autoturret, "Add auto turret to heli");
-                GetConfig(ref autoturretBattery, "Auto turret uses battery");
-                GetConfig(ref turretRange, "Mini Turret Range (Default 30)");
-                GetConfig(ref addSearchLight, "Light: Add Searchlight to heli");
-                GetConfig(ref lightTail, "Light: Add Nightitme Tail Light");
-
-                plugin.SaveConfig();
-            }
-
-            private void GetConfig<T>(ref T variable, params string[] path) {
-                if (path.Length == 0)
-                    return;
-
-                if (plugin.Config.Get(path) == null) {
-                    SetConfig(ref variable, path);
-                    plugin.PrintWarning($"Added field to config: {string.Join("/", path)}");
-                }
-
-                variable = (T)Convert.ChangeType(plugin.Config.Get(path), typeof(T));
-            }
-
-            private void SetConfig<T>(ref T variable, params string[] path) => plugin.Config.Set(path.Concat(new object[] { variable }).ToArray());
-        }
-
-        protected override void LoadDefaultConfig() => PrintWarning("Generating new configuration file.");
-
-        private MiniCopterOptionsConfig config;
-
         class MiniCopterDefaults
         {
             public float fuelPerSecond;
@@ -701,40 +669,170 @@ namespace Oxide.Plugins
             public Vector3 torqueScale;
         }
 
-        MiniCopterDefaults copterDefaults;
+        private class Configuration : SerializableConfiguration {
 
-        private void Init() {
-            config = new MiniCopterOptionsConfig(this);
+            // Populated with Rust defaults.
+            [JsonProperty("Fuel per Second")]
+            public float fuelPerSec = 0.25f;
 
-            if (config.storageContainers > 3) {
-                PrintWarning($"Storage Containers configuration value {config.storageContainers} exceeds the maximum, setting to 3.");
-                config.storageContainers = 3;
-            } else if (config.storageContainers < 0) {
-                PrintWarning($"Storage Containers cannot be a negative value, setting to 0.");
-                config.storageContainers = 0;
+            [JsonProperty("Lift Fraction")]
+            public float liftFraction = 0.25f;
+
+            [JsonProperty("Pitch Torque Scale")]
+            public float torqueScalePitch = 400f;
+
+            [JsonProperty("Yaw Torque Scale")]
+            public float torqueScaleYaw = 400f;
+
+            [JsonProperty("Roll Torque Scale")]
+            public float torqueScaleRoll = 200f;
+
+            [JsonProperty("Storage Containers")]
+            public int storageContainers = 0;
+
+            [JsonProperty("Large Storage Containers")]
+            public int storageLargeContainers = 0;
+
+            [JsonProperty("Restore Defaults")]
+            public bool restoreDefaults = true;
+
+            [JsonProperty("Reload Storage")]
+            public bool reloadStorage = false;
+
+            [JsonProperty("Drop Storage Loot On Death")]
+            public bool dropStorage = true;
+
+            [JsonProperty("Large Storage Lockable")]
+            public bool largeStorageLockable = true;
+
+            [JsonProperty("Large Storage Size (Max 48)")]
+            public int largeStorageSize = 48;
+
+            [JsonProperty("Large Storage Size (Max 42)")]
+            public int largeStorageSizeDeprecated {
+                set { largeStorageSize = value; }
             }
 
-            if (config.storageLargeContainers > 2) {
-                PrintWarning($"Large Storage Containers configuration value {config.storageLargeContainers} exceeds the maximum, setting to 2.");
-                config.storageLargeContainers = 2;
-            } else if (config.storageLargeContainers < 0) {
-                PrintWarning($"Large Storage Containers cannot be a negative value, setting to 0.");
-                config.storageLargeContainers = 0;
-            }
+            [JsonProperty("Seconds to pause flyhack when dismount from heli.")]
+            public int flyHackPause = 1;
 
-            if (config.largeStorageSize > 42) {
-                PrintWarning($"Large Storage Containers Capacity configuration value {config.largeStorageSize} exceeds the maximum, setting to 42.");
-                config.largeStorageSize = 42;
-            } else if (config.largeStorageSize < 6) {
-                PrintWarning($"Storage Containers Capacity cannot be a smaller than 6, setting to 6.");
-            }
+            [JsonProperty("Add auto turret to heli")]
+            public bool autoturret = false;
 
-            Unsubscribe(nameof(OnEntitySpawned));
+            [JsonProperty("Auto turret uses battery")]
+            public bool autoturretBattery = true;
 
-            if (!config.autoturret) {
-                Unsubscribe(nameof(OnTurretTarget));
+            [JsonProperty("Mini Turret Range (Default 30)")]
+            public float turretRange = 30f;
+
+            [JsonProperty("Light: Add Searchlight to heli")]
+            public bool addSearchLight = true;
+
+            [JsonProperty("Light: Add Nightitme Tail Light")]
+            public bool lightTail = false;
+        }
+
+        private Configuration GetDefaultConfig() => new Configuration();
+
+        #region Configuration Helpers
+
+        private class SerializableConfiguration {
+            public string ToJson() => JsonConvert.SerializeObject(this);
+
+            public Dictionary<string, object> ToDictionary() => JsonHelper.Deserialize(ToJson()) as Dictionary<string, object>;
+        }
+
+        private static class JsonHelper {
+            public static object Deserialize(string json) => ToObject(JToken.Parse(json));
+
+            private static object ToObject(JToken token)
+            {
+                switch (token.Type)
+                {
+                    case JTokenType.Object:
+                        return token.Children<JProperty>()
+                                    .ToDictionary(prop => prop.Name,
+                                                  prop => ToObject(prop.Value));
+
+                    case JTokenType.Array:
+                        return token.Select(ToObject).ToList();
+
+                    default:
+                        return ((JValue)token).Value;
+                }
             }
         }
+
+        private bool MaybeUpdateConfig(SerializableConfiguration config) {
+            var currentWithDefaults = config.ToDictionary();
+            var currentRaw = Config.ToDictionary(x => x.Key, x => x.Value);
+            return MaybeUpdateConfigDict(currentWithDefaults, currentRaw);
+        }
+
+        private bool MaybeUpdateConfigDict(Dictionary<string, object> currentWithDefaults, Dictionary<string, object> currentRaw) {
+            bool changed = false;
+
+            foreach (var key in currentWithDefaults.Keys)
+            {
+                object currentRawValue;
+                if (currentRaw.TryGetValue(key, out currentRawValue))
+                {
+                    var defaultDictValue = currentWithDefaults[key] as Dictionary<string, object>;
+                    var currentDictValue = currentRawValue as Dictionary<string, object>;
+
+                    if (defaultDictValue != null)
+                    {
+                        if (currentDictValue == null)
+                        {
+                            currentRaw[key] = currentWithDefaults[key];
+                            changed = true;
+                        }
+                        else if (MaybeUpdateConfigDict(defaultDictValue, currentDictValue))
+                            changed = true;
+                    }
+                }
+                else
+                {
+                    currentRaw[key] = currentWithDefaults[key];
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        protected override void LoadDefaultConfig() => config = GetDefaultConfig();
+
+        protected override void LoadConfig() {
+            base.LoadConfig();
+            try
+            {
+                config = Config.ReadObject<Configuration>();
+                if (config == null)
+                {
+                    throw new JsonException();
+                }
+
+                if (MaybeUpdateConfig(config))
+                {
+                    LogWarning("Configuration appears to be outdated; updating and saving");
+                    SaveConfig();
+                }
+            }
+            catch (Exception e)
+            {
+                LogError(e.Message);
+                LogWarning($"Configuration file {Name}.json is invalid; using defaults");
+                LoadDefaultConfig();
+            }
+        }
+
+        protected override void SaveConfig() {
+            Log($"Configuration changes saved to {Name}.json");
+            Config.WriteObject(config, true);
+        }
+
+        #endregion
 
         #endregion
 
@@ -762,7 +860,7 @@ namespace Oxide.Plugins
             }, this);
         }
 
-        string GetMsg(string key, object userID = null) => lang.GetMessage(key, this, userID == null ? null : userID.ToString());
+        string GetMsg(string key, string userIdString) => lang.GetMessage(key, this, userIdString);
 
         #endregion
 
