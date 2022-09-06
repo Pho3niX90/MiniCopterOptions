@@ -19,24 +19,24 @@ The default configuration mimics the default Rust values.
 
 ```json
 {
+  "Fuel per Second": 0.25,
+  "Lift Fraction": 0.25,
+  "Pitch Torque Scale": 400.0,
+  "Yaw Torque Scale": 400.0,
+  "Roll Torque Scale": 200.0,
+  "Storage Containers": 0,
+  "Large Storage Containers": 0,
+  "Restore Defaults": true,
+  "Reload Storage": false,
+  "Drop Storage Loot On Death": true,
+  "Large Storage Lockable": true,
+  "Large Storage Size (Max 48)": 48,
+  "Seconds to pause flyhack when dismount from heli.": 1,
   "Add auto turret to heli": false,
   "Auto turret uses battery": true,
-  "Drop Storage Loot On Death": true,
-  "Fuel per Second": 0.25,
-  "Large Storage Containers": 0,
-  "Large Storage Lockable": true,
-  "Large Storage Size (Max 42)": 42,
-  "Lift Fraction": 0.25,
-  "Light: Add Nightitme Tail Light": false,
-  "Light: Add Searchlight to heli": true,
   "Mini Turret Range (Default 30)": 30.0,
-  "Pitch Torque Scale": 400.0,
-  "Reload Storage": false,
-  "Restore Defaults": true,
-  "Roll Torque Scale": 200.0,
-  "Seconds to pause flyhack when dismount from heli.": 4,
-  "Storage Containers": 0,
-  "Yaw Torque Scale": 400.0
+  "Light: Add Searchlight to heli": true,
+  "Light: Add Nightitme Tail Light": false
 }
 ```
 
