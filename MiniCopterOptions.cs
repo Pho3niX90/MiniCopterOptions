@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.2.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.2.1")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : CovalencePlugin
     {
@@ -367,7 +367,11 @@ namespace Oxide.Plugins
                 return;
 
             if (copterDefaults != null) {
-                copter.fuelPerSec = copterDefaults.fuelPerSecond;
+                // Allow setting fuelPerSec to negative to make the plugin do nothing.
+                // Don't update fuelPerSec if not currently the configured value, because another plugin probably updated it.
+                if (config.fuelPerSec >= 0 && copter.fuelPerSec == config.fuelPerSec) {
+                    copter.fuelPerSec = copterDefaults.fuelPerSecond;
+                }
                 copter.liftFraction = copterDefaults.liftFraction;
                 copter.torqueScale = copterDefaults.torqueScale;
             }
@@ -380,7 +384,11 @@ namespace Oxide.Plugins
 
         void ModifyMiniCopter(MiniCopter copter) {
 
-            copter.fuelPerSec = config.fuelPerSec;
+            // Allow setting fuelPerSec to negative to make the plugin do nothing.
+            // Don't update fuelPerSec if not currently set to vanilla default, because another plugin probably updated it.
+            if (config.fuelPerSec >= 0 && copterDefaults != null && copter.fuelPerSec == copterDefaults.fuelPerSecond) {
+                copter.fuelPerSec = config.fuelPerSec;
+            }
             copter.liftFraction = config.liftFraction;
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
 
