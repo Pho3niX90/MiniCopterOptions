@@ -11,7 +11,7 @@ Set **Restore Defaults** to true to restore the default movement and fuel consum
 **Warning about high *Lift Fraction* values:** Setting a high lift fraction can increase the risk of FlyHack kicks when a player has crashed the Mini-Copter. **Seconds to pause flyhack when dismount from heli.:** should solve the issue.
 
 ## Key binds
-* The pilot can turn the search light on and off with **USE** key
+* The pilot can turn the search light on and off with flashlight key
 
 ## Configuration
 
