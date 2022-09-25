@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.2.1")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.2.2")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : CovalencePlugin
     {
@@ -391,6 +391,11 @@ namespace Oxide.Plugins
             }
             copter.liftFraction = config.liftFraction;
             copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
+
+            // Override the inertia tensor since if the server had rebooted while there were attachments, it would have been snapshotted to an unreasonable value.
+            // This is the vanila amount while the prevent building object is inactive.
+            // To determine this value, simply deactivate the prevent building object, call rigidBody.ResetInertiaTensor(), then print the value.
+            copter.rigidBody.inertiaTensor = new Vector3(407.1f, 279.6f, 173.2f);
 
             if (config.autoturret) {
                 // Setup existing turret, or add a new one.
