@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.2.2")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.2.3")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : CovalencePlugin
     {
@@ -271,6 +271,7 @@ namespace Oxide.Plugins
             battery.maxOutput = 12;
             battery.pickup.enabled = false;
             DestroyGroundComp(battery);
+            DestroyColliders(battery);
         }
 
         ElectricBattery AddBattery(MiniCopter copter) {
@@ -342,6 +343,12 @@ namespace Oxide.Plugins
         void DestroyMeshCollider(BaseEntity ent) {
             foreach (var mesh in ent.GetComponentsInChildren<MeshCollider>()) {
                 UnityEngine.Object.DestroyImmediate(mesh);
+            }
+        }
+
+        void DestroyColliders(BaseEntity ent) {
+            foreach (var collider in ent.GetComponentsInChildren<Collider>()) {
+                UnityEngine.Object.DestroyImmediate(collider);
             }
         }
 
