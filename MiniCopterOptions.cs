@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.2.3")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.3.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : CovalencePlugin
     {
@@ -595,8 +595,17 @@ namespace Oxide.Plugins
             if ((object)mini == null || mini is ScrapTransportHelicopter)
                 return null;
 
+            if (!config.autoTurretTargetsAnimals && target is BaseAnimalNPC)
+                return False;
+
             var basePlayer = target as BasePlayer;
             if ((object)basePlayer != null) {
+                if (!config.autoTurretTargetsNPCs && basePlayer.IsNpc)
+                    return False;
+
+                if (!config.autoTurretTargetsPlayers && basePlayer.userID.IsSteamId())
+                    return False;
+
                 if (basePlayer.InSafeZone() && (basePlayer.IsNpc || !basePlayer.IsHostile()))
                     return False;
             }
@@ -741,6 +750,15 @@ namespace Oxide.Plugins
 
             [JsonProperty("Auto turret uses battery")]
             public bool autoturretBattery = true;
+
+            [JsonProperty("Auto turret targets players")]
+            public bool autoTurretTargetsPlayers = true;
+
+            [JsonProperty("Auto turret targets NPCs")]
+            public bool autoTurretTargetsNPCs = true;
+
+            [JsonProperty("Auto turret targets animals")]
+            public bool autoTurretTargetsAnimals = true;
 
             [JsonProperty("Mini Turret Range (Default 30)")]
             public float turretRange = 30f;
