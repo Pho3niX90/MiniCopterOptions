@@ -531,6 +531,18 @@ namespace Oxide.Plugins
                 Unsubscribe(nameof(OnServerCommand));
 
             foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
+
+                if (init) {
+                    // Destroy problematic components immediately on server boot, since OnEntitySpawned will run changes on a delay.
+                    foreach (var meshCollider in copter.GetComponentsInChildren<MeshCollider>()) {
+                        UnityEngine.Object.DestroyImmediate(meshCollider);
+                    }
+
+                    foreach (var groundWatch in copter.GetComponentsInChildren<GroundWatch>()) {
+                        UnityEngine.Object.DestroyImmediate(groundWatch);
+                    }
+                }
+
                 OnEntitySpawned(copter);
 
                 var scrapHeli = copter as ScrapTransportHelicopter;
