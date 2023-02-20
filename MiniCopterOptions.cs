@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
+using Oxide.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.3.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.4.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : CovalencePlugin
     {
@@ -480,6 +481,28 @@ namespace Oxide.Plugins
             }
         }
 
+        bool CanModifyMiniCopter(MiniCopter copter) {
+            var hookResult = Interface.CallHook("OnMiniCopterOptions", copter);
+            if (hookResult is bool && !(bool)hookResult)
+                return false;
+
+            return true;
+        }
+
+        void ScheduleModifyMiniCopter(MiniCopter copter) {
+            // Delay to allow plugins to detect the Mini and save its ID so they can block modification via hooks.
+            NextTick(() =>
+            {
+                if (copter == null || copter.IsDestroyed)
+                    return;
+
+                if (!CanModifyMiniCopter(copter))
+                    return;
+
+                ModifyMiniCopter(copter);
+            });
+        }
+
         void StoreMiniCopterDefaults() {
             var copter = GameManager.server.FindPrefab(minicopterPrefab)?.GetComponent<MiniCopter>();
             if (copter == null)
@@ -529,8 +552,9 @@ namespace Oxide.Plugins
             // If the plugin is unloaded before OnServerInitialized() ran, don't revert minicopters to 0 values.
             if (copterDefaults != default(MiniCopterDefaults)) {
                 foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
-                    if (config.restoreDefaults)
+                    if (config.restoreDefaults && CanModifyMiniCopter(copter)) {
                         RestoreMiniCopter(copter, config.reloadStorage);
+                    }
                 }
             }
         }
@@ -541,7 +565,7 @@ namespace Oxide.Plugins
 
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers.
-            ModifyMiniCopter(copter);
+            ScheduleModifyMiniCopter(copter);
         }
 
         void OnEntityKill(BaseNetworkable entity) {
