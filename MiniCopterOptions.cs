@@ -42,6 +42,8 @@ namespace Oxide.Plugins
         private float sunset;
         private float lastNightCheck;
 
+        private readonly Dictionary<uint, ulong> minicopterToLastDriverId = new Dictionary<uint, ulong>();
+
         void Init() {
             if (config.storageContainers > 3) {
                 PrintWarning($"Storage Containers configuration value {config.storageContainers} exceeds the maximum, setting to 3.");
@@ -580,16 +582,23 @@ namespace Oxide.Plugins
             ScheduleModifyMiniCopter(copter);
         }
 
-        void OnEntityKill(BaseNetworkable entity) {
-            if (!config.dropStorage || !(entity is MiniCopter))
+        void OnEntityKill(MiniCopter mini) {
+            if (!config.dropStorage)
                 return;
 
-            StorageContainer[] containers = entity.GetComponentsInChildren<StorageContainer>();
-            foreach (StorageContainer container in containers) {
-                container.DropItems();
+            ulong driverId = GetLastDriverId(mini);
+            RemoveMinicopterCache(mini);
+
+            StorageContainer[] containers = mini.GetComponentsInChildren<StorageContainer>();
+            foreach (StorageContainer storage in containers) {
+                DroppedItemContainer container = DropItems(storage);
+
+                // Set last driver as container owner to allow looting in safe zones
+                if (container != null)
+                    container.playerSteamID = driverId;
             }
 
-            AutoTurret[] turrets = entity.GetComponentsInChildren<AutoTurret>();
+            AutoTurret[] turrets = mini.GetComponentsInChildren<AutoTurret>();
             foreach (AutoTurret turret in turrets) {
                 turret.DropItems();
             }
@@ -684,9 +693,22 @@ namespace Oxide.Plugins
             return null;
         }
 
-        void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
-            if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
+        void OnEntityDismounted(BaseVehicleSeat seat, BasePlayer player) {
+            MiniCopter mini = seat.GetParentEntity() as MiniCopter;
+
+            if (mini == null)
+                return;
+
+            if (config.flyHackPause > 0)
                 player.PauseFlyHackDetection(config.flyHackPause);
+
+            int seatIndex = mini.GetIndexFromSeat(seat);
+            if (seatIndex < 0)
+                return;
+
+            BaseVehicle.MountPointInfo mountPointInfo = mini.GetMountPoint(seatIndex);
+            if (mountPointInfo != null && mountPointInfo.isDriver)
+                CacheLastDriver(seat.GetParentEntity(), player);
         }
 
         object CanMountEntity(BasePlayer player, BaseMountable entity) {
@@ -921,6 +943,59 @@ namespace Oxide.Plugins
                     Puts($"-C- {s.GetType().Name} | {s.name}");
                 }
             }
+        }
+
+        private void CacheLastDriver(BaseNetworkable networkable, BasePlayer player)
+        {
+            if (networkable.net == null)
+                return;
+
+            uint id = networkable.net.ID;
+            ulong driverId = player.userID;
+
+            if (!minicopterToLastDriverId.TryAdd(id, driverId))
+                minicopterToLastDriverId[id] = driverId;
+        }
+
+        private ulong GetLastDriverId(MiniCopter mini) {
+            BasePlayer driver = mini.GetPlayerDamageInitiator();
+
+            if (driver != null)
+                return driver.userID;
+
+            if (mini.net != null) {
+                // Get cached driver id, because old driver get cleared every 3 seconds
+                uint id = mini.net.ID;
+                if (minicopterToLastDriverId.ContainsKey(id))
+                    return minicopterToLastDriverId[id];
+            }
+
+            return 0;
+        }
+
+        private void RemoveMinicopterCache(MiniCopter mini) {
+            if (mini.net != null)
+                minicopterToLastDriverId.Remove(mini.net.ID);
+        }
+
+        private static DroppedItemContainer DropItems(IItemContainerEntity containerEntity, BaseEntity initiator = null) {
+            ItemContainer inventory = containerEntity.inventory;
+            if (inventory?.itemList == null || inventory.itemList.Count == 0 || !containerEntity.DropsLoot)
+                return null;
+
+            if (containerEntity.ShouldDropItemsIndividually() || inventory.itemList.Count == 1) {
+                if (initiator != null)
+                    containerEntity.DropBonusItems(initiator, inventory);
+
+                DropUtil.DropItems(inventory, containerEntity.GetDropPosition());
+                return null;
+            }
+
+            string prefab = containerEntity.DropFloats
+                ? "assets/prefabs/misc/item drop/item_drop_buoyant.prefab"
+                : "assets/prefabs/misc/item drop/item_drop.prefab";
+
+            return inventory.Drop(prefab, containerEntity.GetDropPosition(), containerEntity.Transform.rotation, containerEntity.DestroyLootPercent);
         }
 
         #endregion
