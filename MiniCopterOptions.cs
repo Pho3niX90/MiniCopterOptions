@@ -580,16 +580,16 @@ namespace Oxide.Plugins
             ScheduleModifyMiniCopter(copter);
         }
 
-        void OnEntityKill(BaseNetworkable entity) {
-            if (!config.dropStorage || !(entity is MiniCopter))
+        void OnEntityKill(MiniCopter mini) {
+            if (!config.dropStorage)
                 return;
 
-            StorageContainer[] containers = entity.GetComponentsInChildren<StorageContainer>();
+            StorageContainer[] containers = mini.GetComponentsInChildren<StorageContainer>();
             foreach (StorageContainer container in containers) {
                 container.DropItems();
             }
 
-            AutoTurret[] turrets = entity.GetComponentsInChildren<AutoTurret>();
+            AutoTurret[] turrets = mini.GetComponentsInChildren<AutoTurret>();
             foreach (AutoTurret turret in turrets) {
                 turret.DropItems();
             }
