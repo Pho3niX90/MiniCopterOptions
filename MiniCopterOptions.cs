@@ -9,14 +9,13 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.4.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.4.1")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     class MiniCopterOptions : CovalencePlugin
     {
         #region Prefab Modifications
 
         private readonly string minicopterPrefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
-        private readonly string scrapHeliPrefab = "assets/content/vehicles/scrap heli carrier/scraptransporthelicopter.prefab";
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
         private readonly string storageLargePrefab = "assets/content/vehicles/boats/rhib/subents/rhib_storage.prefab";
         private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
@@ -92,7 +91,7 @@ namespace Oxide.Plugins
             //Puts($"OnHour Called: Night:{isNight} LastRanAtNight:{lastRanAtNight}");
             lastNightCheck = hour;
 
-            var minis = BaseNetworkable.serverEntities.OfType<MiniCopter>().ToArray();
+            var minis = BaseNetworkable.serverEntities.OfType<Minicopter>().ToArray();
             //Puts($"OnHour Called: Minis to modify {minis.Count}");\
             foreach (var mini in minis) {
                 var tailLight = mini.GetComponentInChildren<FlasherLight>();
@@ -123,11 +122,11 @@ namespace Oxide.Plugins
             time.Components.Time.OnHour += OnHour;
         }
 
-        StorageContainer[] GetStorage(MiniCopter copter) => copter.GetComponentsInChildren<StorageContainer>()
+        StorageContainer[] GetStorage(Minicopter copter) => copter.GetComponentsInChildren<StorageContainer>()
             .Where(x => x.name == storagePrefab || x.name == storageLargePrefab)
             .ToArray();
 
-        void AddLargeStorageBox(MiniCopter copter) {
+        void AddLargeStorageBox(Minicopter copter) {
             //sides,negative left | up and down | in and out
 
             if (config.storageLargeContainers == 1) {
@@ -139,18 +138,18 @@ namespace Oxide.Plugins
 
         }
 
-        void AddRearStorageBox(MiniCopter copter) {
+        void AddRearStorageBox(Minicopter copter) {
             AddStorageBox(copter, storagePrefab, new Vector3(0, 0.75f, -1f));
         }
 
-        void AddSideStorageBoxes(MiniCopter copter) {
+        void AddSideStorageBoxes(Minicopter copter) {
             AddStorageBox(copter, storagePrefab, new Vector3(0.6f, 0.24f, -0.35f));
             if (!IsBatteryEnabled()) {
                 AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
             }
         }
 
-        void AddStorageBox(MiniCopter copter, string prefab, Vector3 position) {
+        void AddStorageBox(Minicopter copter, string prefab, Vector3 position) {
             AddStorageBox(copter, prefab, position, Quaternion.identity);
         }
 
@@ -162,7 +161,7 @@ namespace Oxide.Plugins
             }
         }
 
-        void AddStorageBox(MiniCopter copter, string prefab, Vector3 position, Quaternion rotation) {
+        void AddStorageBox(Minicopter copter, string prefab, Vector3 position, Quaternion rotation) {
             StorageContainer box = GameManager.server.CreateEntity(prefab, position, rotation) as StorageContainer;
 
             box.Spawn();
@@ -184,7 +183,7 @@ namespace Oxide.Plugins
             tailLight.SetFlag(IOEntity.Flag_HasPower, IsNight());
         }
 
-        void AddTailLight(MiniCopter copter) {
+        void AddTailLight(Minicopter copter) {
             FlasherLight tailLight = GameManager.server.CreateEntity(flasherBluePrefab, new Vector3(0, 1.2f, -2.0f), Quaternion.Euler(33, 180, 0)) as FlasherLight;
             SetupTailLight(tailLight);
             tailLight.SetParent(copter);
@@ -203,7 +202,7 @@ namespace Oxide.Plugins
             DestroyGroundComp(searchLight);
         }
 
-        void AddSearchLight(MiniCopter copter) {
+        void AddSearchLight(Minicopter copter) {
             SphereEntity sphereEntity = GameManager.server.CreateEntity(spherePrefab, new Vector3(0, -100, 0), Quaternion.identity) as SphereEntity;
             SetupSphereEntity(sphereEntity);
             sphereEntity.SetParent(copter);
@@ -248,7 +247,7 @@ namespace Oxide.Plugins
             DestroyGroundComp(turret);
         }
 
-        void AddTurret(MiniCopter copter) {
+        void AddTurret(Minicopter copter) {
             AutoTurret turret = GameManager.server.CreateEntity(autoturretPrefab, new Vector3(0, 0, 2.47f)) as AutoTurret;
             SetupAutoTurret(turret);
             turret.SetParent(copter);
@@ -275,7 +274,7 @@ namespace Oxide.Plugins
             DestroyColliders(battery);
         }
 
-        ElectricBattery AddBattery(MiniCopter copter) {
+        ElectricBattery AddBattery(Minicopter copter) {
             var batteryPosition = copter.transform.TransformPoint(new Vector3(-0.7f, 0.2f, -0.2f));
             var batteryRotation = copter.transform.rotation;
 
@@ -297,7 +296,7 @@ namespace Oxide.Plugins
         void AddSwitch(AutoTurret turret) {
             ElectricBattery battery = null;
             if (IsBatteryEnabled()) {
-                battery = AddBattery(turret.GetParentEntity() as MiniCopter);
+                battery = AddBattery(turret.GetParentEntity() as Minicopter);
             }
 
             var switchPosition = turret.transform.TransformPoint(new Vector3(0f, -0.65f, 0.325f));
@@ -353,27 +352,11 @@ namespace Oxide.Plugins
             }
         }
 
-        IOEntity GetBatteryConnected(MiniCopter ent) {
+        IOEntity GetBatteryConnected(Minicopter ent) {
             return ent.GetComponentInChildren<ElectricBattery>()?.inputs[0]?.connectedTo.ioEnt;
         }
 
-        void FixScrapHeliIfNeeded(ScrapTransportHelicopter scrapHeli) {
-            if (scrapHeli.torqueScale != copterDefaults.torqueScale)
-                return;
-
-            var scrapHeliTemplate = GameManager.server.FindPrefab(scrapHeliPrefab)?.GetComponent<ScrapTransportHelicopter>();
-            if (scrapHeliTemplate == null)
-                return;
-
-            scrapHeli.fuelPerSec = scrapHeliTemplate.fuelPerSec;
-            scrapHeli.liftFraction = scrapHeliTemplate.liftFraction;
-            scrapHeli.torqueScale = scrapHeliTemplate.torqueScale;
-        }
-
-        void RestoreMiniCopter(MiniCopter copter, bool removeStorage = false) {
-            if (copter is ScrapTransportHelicopter)
-                return;
-
+        void RestoreMiniCopter(Minicopter copter, bool removeStorage = false) {
             if (copterDefaults != null) {
                 // Allow setting fuelPerSec to negative to make the plugin do nothing.
                 // Don't update fuelPerSec if not currently the configured value, because another plugin probably updated it.
@@ -390,7 +373,7 @@ namespace Oxide.Plugins
             }
         }
 
-        void ModifyMiniCopter(MiniCopter copter) {
+        void ModifyMiniCopter(Minicopter copter) {
 
             // Allow setting fuelPerSec to negative to make the plugin do nothing.
             // Don't update fuelPerSec if not currently set to vanilla default, because another plugin probably updated it.
@@ -481,7 +464,7 @@ namespace Oxide.Plugins
             }
         }
 
-        bool CanModifyMiniCopter(MiniCopter copter) {
+        bool CanModifyMiniCopter(Minicopter copter) {
             var hookResult = Interface.CallHook("OnMiniCopterOptions", copter);
             if (hookResult is bool && !(bool)hookResult)
                 return false;
@@ -489,7 +472,7 @@ namespace Oxide.Plugins
             return true;
         }
 
-        void ScheduleModifyMiniCopter(MiniCopter copter) {
+        void ScheduleModifyMiniCopter(Minicopter copter) {
             // Delay to allow plugins to detect the Mini and save its ID so they can block modification via hooks.
             NextTick(() =>
             {
@@ -504,7 +487,7 @@ namespace Oxide.Plugins
         }
 
         void StoreMiniCopterDefaults() {
-            var copter = GameManager.server.FindPrefab(minicopterPrefab)?.GetComponent<MiniCopter>();
+            var copter = GameManager.server.FindPrefab(minicopterPrefab)?.GetComponent<Minicopter>();
             if (copter == null)
                 return;
 
@@ -530,7 +513,7 @@ namespace Oxide.Plugins
             if (!config.addSearchLight)
                 Unsubscribe(nameof(OnServerCommand));
 
-            foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
+            foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>()) {
 
                 if (init) {
                     // Destroy problematic components immediately on server boot, since OnEntitySpawned will run changes on a delay.
@@ -544,13 +527,6 @@ namespace Oxide.Plugins
                 }
 
                 OnEntitySpawned(copter);
-
-                var scrapHeli = copter as ScrapTransportHelicopter;
-                if ((object)scrapHeli != null) {
-                    // A previous version of the plugin would set scrap helis to minicopter values on Unload,
-                    // so fix them when the plugin loads if needed.
-                    FixScrapHeliIfNeeded(scrapHeli);
-                }
             }
 
             Subscribe(nameof(OnEntitySpawned));
@@ -563,7 +539,7 @@ namespace Oxide.Plugins
 
             // If the plugin is unloaded before OnServerInitialized() ran, don't revert minicopters to 0 values.
             if (copterDefaults != default(MiniCopterDefaults)) {
-                foreach (var copter in BaseNetworkable.serverEntities.OfType<MiniCopter>()) {
+                foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>()) {
                     if (config.restoreDefaults && CanModifyMiniCopter(copter)) {
                         RestoreMiniCopter(copter, config.reloadStorage);
                     }
@@ -571,17 +547,14 @@ namespace Oxide.Plugins
             }
         }
 
-        void OnEntitySpawned(MiniCopter copter) {
-            if (copter is ScrapTransportHelicopter)
-                return;
-
+        void OnEntitySpawned(Minicopter copter) {
             // Only add storage on spawn so we don't stack or mess with
             // existing player storage containers.
             ScheduleModifyMiniCopter(copter);
         }
 
         void OnEntityKill(BaseNetworkable entity) {
-            if (!config.dropStorage || !(entity is MiniCopter))
+            if (!config.dropStorage || !(entity is Minicopter))
                 return;
 
             StorageContainer[] containers = entity.GetComponentsInChildren<StorageContainer>();
@@ -607,7 +580,7 @@ namespace Oxide.Plugins
             if (turret == null)
                 return;
 
-            var mini = turret.GetParentEntity() as MiniCopter;
+            var mini = turret.GetParentEntity() as Minicopter;
             if (mini == null)
             {
                 // Ignore if the turret isn't on a mini, to avoid plugin conflicts.
@@ -627,8 +600,8 @@ namespace Oxide.Plugins
             if (target == null)
                 return null;
 
-            var mini = turret.GetParentEntity() as MiniCopter;
-            if ((object)mini == null || mini is ScrapTransportHelicopter)
+            var mini = turret.GetParentEntity() as Minicopter;
+            if ((object)mini == null)
                 return null;
 
             if (!config.autoTurretTargetsAnimals && target is BaseAnimalNPC)
@@ -657,7 +630,7 @@ namespace Oxide.Plugins
             if (player == null)
                 return null;
 
-            var mini = player.GetMountedVehicle() as MiniCopter;
+            var mini = player.GetMountedVehicle() as Minicopter;
             if (mini == null)
                 return null;
 
@@ -685,18 +658,18 @@ namespace Oxide.Plugins
         }
 
         void OnEntityDismounted(BaseNetworkable entity, BasePlayer player) {
-            if (config.flyHackPause > 0 && entity.GetParentEntity() is MiniCopter)
+            if (config.flyHackPause > 0 && entity.GetParentEntity() is Minicopter)
                 player.PauseFlyHackDetection(config.flyHackPause);
         }
 
         object CanMountEntity(BasePlayer player, BaseMountable entity) {
-            if (!(entity is MiniCopter) && !(entity.GetParentEntity() is MiniCopter))
+            if (!(entity is Minicopter) && !(entity.GetParentEntity() is Minicopter))
                 return null;
 
             if (!IsBatteryEnabled())
                 return null;
 
-            MiniCopter mini = entity.GetParentEntity() as MiniCopter;
+            Minicopter mini = entity.GetParentEntity() as Minicopter;
             if (mini != null) {
                 IOEntity battery = GetBatteryConnected(mini);
                 if (battery != null) {
@@ -712,7 +685,7 @@ namespace Oxide.Plugins
                 return;
 
             var parent = container.GetParentEntity();
-            if (parent == null || !(parent is MiniCopter) || parent is ScrapTransportHelicopter)
+            if (parent == null || !(parent is Minicopter))
                 return;
 
             if (container.PrefabName != storageLargePrefab)
