@@ -12,7 +12,7 @@ namespace Oxide.Plugins
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     internal class MiniCopterOptions : CovalencePlugin
     {
-        #region Prefab Modifications
+        #region Fields
 
         private readonly string minicopterPrefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
         private readonly string storagePrefab = "assets/prefabs/deployable/hot air balloon/subents/hab_storage.prefab";
@@ -39,6 +39,10 @@ namespace Oxide.Plugins
         private float sunrise;
         private float sunset;
         private float lastNightCheck;
+
+        #endregion
+
+        #region Hooks
 
         private void Init()
         {
@@ -81,6 +85,236 @@ namespace Oxide.Plugins
                 Unsubscribe(nameof(OnTurretTarget));
             }
         }
+
+        private void OnServerInitialized(bool init)
+        {
+            StoreMiniCopterDefaults();
+
+            if (config.lightTail)
+            {
+                SetupTimeHooks();
+            }
+
+            if (!config.addSearchLight)
+            {
+                Unsubscribe(nameof(OnServerCommand));
+            }
+
+            foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>())
+            {
+                if (init)
+                {
+                    // Destroy problematic components immediately on server boot, since OnEntitySpawned will run changes on a delay.
+                    foreach (var meshCollider in copter.GetComponentsInChildren<MeshCollider>())
+                    {
+                        UnityEngine.Object.DestroyImmediate(meshCollider);
+                    }
+
+                    foreach (var groundWatch in copter.GetComponentsInChildren<GroundWatch>())
+                    {
+                        UnityEngine.Object.DestroyImmediate(groundWatch);
+                    }
+                }
+
+                OnEntitySpawned(copter);
+            }
+
+            Subscribe(nameof(OnEntitySpawned));
+        }
+
+        private void Unload()
+        {
+            if (config.lightTail && time != null)
+            {
+                time.Components.Time.OnHour -= OnHour;
+            }
+
+            // If the plugin is unloaded before OnServerInitialized() ran, don't revert minicopters to 0 values.
+            if (copterDefaults != default(MiniCopterDefaults))
+            {
+                foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>())
+                {
+                    if (config.restoreDefaults && CanModifyMiniCopter(copter))
+                    {
+                        RestoreMiniCopter(copter, config.reloadStorage);
+                    }
+                }
+            }
+        }
+
+        private void OnEntitySpawned(Minicopter copter)
+        {
+            // Only add storage on spawn so we don't stack or mess with
+            // existing player storage containers.
+            ScheduleModifyMiniCopter(copter);
+        }
+
+        private void OnEntityKill(BaseNetworkable entity)
+        {
+            if (!config.dropStorage || !(entity is Minicopter))
+                return;
+
+            var containers = entity.GetComponentsInChildren<StorageContainer>();
+            foreach (var container in containers)
+            {
+                container.DropItems();
+            }
+
+            var turrets = entity.GetComponentsInChildren<AutoTurret>();
+            foreach (var turret in turrets)
+            {
+                turret.DropItems();
+            }
+        }
+
+        private void OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player)
+        {
+            if (IsBatteryEnabled())
+            {
+                // Do nothing since the switch is supposed to be wired into the turret,
+                // so the game should handle this automatically.
+                return;
+            }
+
+            var turret = electricSwitch.GetParentEntity() as AutoTurret;
+            if (turret == null)
+                return;
+
+            var mini = turret.GetParentEntity() as Minicopter;
+            if (mini == null)
+            {
+                // Ignore if the turret isn't on a mini, to avoid plugin conflicts.
+                return;
+            }
+
+            if (electricSwitch.IsOn())
+            {
+                turret.SetFlag(IOEntity.Flag_HasPower, true);
+                turret.InitiateStartup();
+            }
+            else
+            {
+                turret.SetFlag(IOEntity.Flag_HasPower, false);
+                turret.InitiateShutdown();
+            }
+        }
+
+        private object OnTurretTarget(AutoTurret turret, BaseCombatEntity target)
+        {
+            if (target == null)
+                return null;
+
+            var mini = turret.GetParentEntity() as Minicopter;
+            if ((object)mini == null)
+                return null;
+
+            if (!config.autoTurretTargetsAnimals && target is BaseAnimalNPC)
+                return False;
+
+            var basePlayer = target as BasePlayer;
+            if ((object)basePlayer != null)
+            {
+                if (!config.autoTurretTargetsNPCs && basePlayer.IsNpc)
+                    return False;
+
+                if (!config.autoTurretTargetsPlayers && basePlayer.userID.IsSteamId())
+                    return False;
+
+                if (basePlayer.InSafeZone() && (basePlayer.IsNpc || !basePlayer.IsHostile()))
+                    return False;
+            }
+
+            return null;
+        }
+
+        private object OnServerCommand(ConsoleSystem.Arg arg)
+        {
+            if (arg.Connection == null || arg.cmd.FullName != "inventory.lighttoggle")
+                return null;
+
+            var player = arg.Player();
+            if (player == null)
+                return null;
+
+            var mini = player.GetMountedVehicle() as Minicopter;
+            if (mini == null)
+                return null;
+
+            if (!mini.IsDriver(player))
+                return null;
+
+            foreach (var child in mini.children)
+            {
+                var sphere = child as SphereEntity;
+                if ((object)sphere == null)
+                    continue;
+
+                foreach (var grandChild in sphere.children)
+                {
+                    var light = grandChild as SearchLight;
+                    if ((object)light == null)
+                        continue;
+
+                    light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
+
+                    // Prevent other lights from toggling.
+                    return False;
+                }
+            }
+
+            return null;
+        }
+
+        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player)
+        {
+            if (config.flyHackPause > 0 && entity.GetParentEntity() is Minicopter)
+            {
+                player.PauseFlyHackDetection(config.flyHackPause);
+            }
+        }
+
+        private object CanMountEntity(BasePlayer player, BaseMountable entity)
+        {
+            if (!(entity is Minicopter) && !(entity.GetParentEntity() is Minicopter))
+                return null;
+
+            if (!IsBatteryEnabled())
+                return null;
+
+            var mini = entity.GetParentEntity() as Minicopter;
+            if (mini != null)
+            {
+                var battery = GetBatteryConnected(mini);
+                if (battery != null)
+                {
+                    player.ChatMessage(string.Format(GetMsg("Err - Diconnect Battery", player.UserIDString), battery.GetDisplayName()));
+                    return False;
+                }
+            }
+
+            return null;
+        }
+
+        private void OnItemDeployed(Deployer deployer, StorageContainer container, BaseLock baseLock)
+        {
+            if (container == null || baseLock == null)
+                return;
+
+            var parent = container.GetParentEntity();
+            if (parent == null || !(parent is Minicopter))
+                return;
+
+            if (container.PrefabName != storageLargePrefab)
+                return;
+
+            baseLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
+            baseLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
+            baseLock.SendNetworkUpdateImmediate();
+        }
+
+        #endregion
+
+        #region Helpers
 
         private bool IsNight()
         {
@@ -614,236 +848,6 @@ namespace Oxide.Plugins
                 liftFraction = copter.liftFraction,
                 torqueScale = copter.torqueScale
             };
-        }
-
-        #endregion
-
-        #region Hooks
-
-        private void OnServerInitialized(bool init)
-        {
-            StoreMiniCopterDefaults();
-
-            if (config.lightTail)
-            {
-                SetupTimeHooks();
-            }
-
-            if (!config.addSearchLight)
-            {
-                Unsubscribe(nameof(OnServerCommand));
-            }
-
-            foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>())
-            {
-                if (init)
-                {
-                    // Destroy problematic components immediately on server boot, since OnEntitySpawned will run changes on a delay.
-                    foreach (var meshCollider in copter.GetComponentsInChildren<MeshCollider>())
-                    {
-                        UnityEngine.Object.DestroyImmediate(meshCollider);
-                    }
-
-                    foreach (var groundWatch in copter.GetComponentsInChildren<GroundWatch>())
-                    {
-                        UnityEngine.Object.DestroyImmediate(groundWatch);
-                    }
-                }
-
-                OnEntitySpawned(copter);
-            }
-
-            Subscribe(nameof(OnEntitySpawned));
-        }
-
-        private void Unload()
-        {
-            if (config.lightTail && time != null)
-            {
-                time.Components.Time.OnHour -= OnHour;
-            }
-
-            // If the plugin is unloaded before OnServerInitialized() ran, don't revert minicopters to 0 values.
-            if (copterDefaults != default(MiniCopterDefaults))
-            {
-                foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>())
-                {
-                    if (config.restoreDefaults && CanModifyMiniCopter(copter))
-                    {
-                        RestoreMiniCopter(copter, config.reloadStorage);
-                    }
-                }
-            }
-        }
-
-        private void OnEntitySpawned(Minicopter copter)
-        {
-            // Only add storage on spawn so we don't stack or mess with
-            // existing player storage containers.
-            ScheduleModifyMiniCopter(copter);
-        }
-
-        private void OnEntityKill(BaseNetworkable entity)
-        {
-            if (!config.dropStorage || !(entity is Minicopter))
-                return;
-
-            var containers = entity.GetComponentsInChildren<StorageContainer>();
-            foreach (var container in containers)
-            {
-                container.DropItems();
-            }
-
-            var turrets = entity.GetComponentsInChildren<AutoTurret>();
-            foreach (var turret in turrets)
-            {
-                turret.DropItems();
-            }
-        }
-
-        private void OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player)
-        {
-            if (IsBatteryEnabled())
-            {
-                // Do nothing since the switch is supposed to be wired into the turret,
-                // so the game should handle this automatically.
-                return;
-            }
-
-            var turret = electricSwitch.GetParentEntity() as AutoTurret;
-            if (turret == null)
-                return;
-
-            var mini = turret.GetParentEntity() as Minicopter;
-            if (mini == null)
-            {
-                // Ignore if the turret isn't on a mini, to avoid plugin conflicts.
-                return;
-            }
-
-            if (electricSwitch.IsOn())
-            {
-                turret.SetFlag(IOEntity.Flag_HasPower, true);
-                turret.InitiateStartup();
-            }
-            else
-            {
-                turret.SetFlag(IOEntity.Flag_HasPower, false);
-                turret.InitiateShutdown();
-            }
-        }
-
-        private object OnTurretTarget(AutoTurret turret, BaseCombatEntity target)
-        {
-            if (target == null)
-                return null;
-
-            var mini = turret.GetParentEntity() as Minicopter;
-            if ((object)mini == null)
-                return null;
-
-            if (!config.autoTurretTargetsAnimals && target is BaseAnimalNPC)
-                return False;
-
-            var basePlayer = target as BasePlayer;
-            if ((object)basePlayer != null)
-            {
-                if (!config.autoTurretTargetsNPCs && basePlayer.IsNpc)
-                    return False;
-
-                if (!config.autoTurretTargetsPlayers && basePlayer.userID.IsSteamId())
-                    return False;
-
-                if (basePlayer.InSafeZone() && (basePlayer.IsNpc || !basePlayer.IsHostile()))
-                    return False;
-            }
-
-            return null;
-        }
-
-        private object OnServerCommand(ConsoleSystem.Arg arg)
-        {
-            if (arg.Connection == null || arg.cmd.FullName != "inventory.lighttoggle")
-                return null;
-
-            var player = arg.Player();
-            if (player == null)
-                return null;
-
-            var mini = player.GetMountedVehicle() as Minicopter;
-            if (mini == null)
-                return null;
-
-            if (!mini.IsDriver(player))
-                return null;
-
-            foreach (var child in mini.children)
-            {
-                var sphere = child as SphereEntity;
-                if ((object)sphere == null)
-                    continue;
-
-                foreach (var grandChild in sphere.children)
-                {
-                    var light = grandChild as SearchLight;
-                    if ((object)light == null)
-                        continue;
-
-                    light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
-
-                    // Prevent other lights from toggling.
-                    return False;
-                }
-            }
-
-            return null;
-        }
-
-        private void OnEntityDismounted(BaseNetworkable entity, BasePlayer player)
-        {
-            if (config.flyHackPause > 0 && entity.GetParentEntity() is Minicopter)
-            {
-                player.PauseFlyHackDetection(config.flyHackPause);
-            }
-        }
-
-        private object CanMountEntity(BasePlayer player, BaseMountable entity)
-        {
-            if (!(entity is Minicopter) && !(entity.GetParentEntity() is Minicopter))
-                return null;
-
-            if (!IsBatteryEnabled())
-                return null;
-
-            var mini = entity.GetParentEntity() as Minicopter;
-            if (mini != null)
-            {
-                var battery = GetBatteryConnected(mini);
-                if (battery != null)
-                {
-                    player.ChatMessage(string.Format(GetMsg("Err - Diconnect Battery", player.UserIDString), battery.GetDisplayName()));
-                    return False;
-                }
-            }
-
-            return null;
-        }
-
-        private void OnItemDeployed(Deployer deployer, StorageContainer container, BaseLock baseLock)
-        {
-            if (container == null || baseLock == null)
-                return;
-
-            var parent = container.GetParentEntity();
-            if (parent == null || !(parent is Minicopter))
-                return;
-
-            if (container.PrefabName != storageLargePrefab)
-                return;
-
-            baseLock.transform.localPosition = new Vector3(0.0f, 0.3f, 0.298f);
-            baseLock.transform.localRotation = Quaternion.Euler(new Vector3(0, 90, 0));
-            baseLock.SendNetworkUpdateImmediate();
         }
 
         #endregion
