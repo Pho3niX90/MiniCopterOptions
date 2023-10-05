@@ -4,11 +4,12 @@ using Oxide.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Oxide.Core.Plugins;
 using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.4.1")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.5.0")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     internal class MiniCopterOptions : CovalencePlugin
     {
@@ -21,7 +22,6 @@ namespace Oxide.Plugins
         private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
         private readonly string searchLightPrefab = "assets/prefabs/deployable/search light/searchlight.deployed.prefab";
         private readonly string flasherBluePrefab = "assets/prefabs/deployable/playerioents/lights/flasherlight/electric.flasherlight.deployed.prefab";
-        private readonly string lockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
         private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
 
         private const string resizableLootPanelName = "generic_resizable";
@@ -38,6 +38,8 @@ namespace Oxide.Plugins
         private float sunrise;
         private float sunset;
         private float lastNightCheck;
+        private float[] stageFuelPerSec = new float[1];
+        private float[] stageLiftFraction = new float[1];
 
         #endregion
 
@@ -129,7 +131,7 @@ namespace Oxide.Plugins
             }
 
             // If the plugin is unloaded before OnServerInitialized() ran, don't revert minicopters to 0 values.
-            if (copterDefaults != default(MiniCopterDefaults))
+            if (copterDefaults != null)
             {
                 foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>())
                 {
@@ -282,6 +284,54 @@ namespace Oxide.Plugins
             baseLock.SendNetworkUpdateImmediate();
         }
 
+        // When another plugin wants to modify a specific property, adjust the proposed value, using the delta between
+        // the vanilla default and the configured value.
+        private void OnMinicopterFuelPerSecChange(Plugin plugin, Minicopter copter, float[] fuelPerSec)
+        {
+            if (plugin.Name == nameof(MiniCopterOptions)
+                || copterDefaults == null
+                || config.fuelPerSec < 0
+                || !CanModifyMiniCopter(copter))
+                return;
+
+            // For example, vanilla is 0.5, configured is 0.1, so multiply by 0.2.
+            fuelPerSec[0] *= config.fuelPerSec / copterDefaults.fuelPerSec;
+        }
+
+        private void OnMinicopterLiftFractionChange(Plugin plugin, Minicopter copter, float[] liftFraction)
+        {
+            if (plugin.Name == nameof(MiniCopterOptions)
+                || copterDefaults == null
+                || config.liftFraction < 0
+                || !CanModifyMiniCopter(copter))
+                return;
+
+            // For example, vanilla is 0.25, configured is 0.5, so multiply by 2.
+            liftFraction[0] *= config.liftFraction / copterDefaults.liftFraction;
+        }
+
+        #endregion
+
+        #region Exposed Hooks
+
+        private static class ExposedHooks
+        {
+            public static object OnMiniCopterOptions(Minicopter copter)
+            {
+                return Interface.CallHook("OnMiniCopterOptions", copter);
+            }
+
+            public static object OnMinicopterFuelPerSecChange(Plugin plugin, Minicopter copter, float[] fuelPerSec)
+            {
+                return Interface.CallHook("OnMinicopterFuelPerSecChange", plugin, copter, fuelPerSec);
+            }
+
+            public static object OnMinicopterLiftFractionChange(Plugin plugin, Minicopter copter, float[] liftFraction)
+            {
+                return Interface.CallHook("OnMinicopterLiftFractionChange", plugin, copter, liftFraction);
+            }
+        }
+
         #endregion
 
         #region Helpers
@@ -352,8 +402,6 @@ namespace Oxide.Plugins
 
         private void AddLargeStorageBox(Minicopter copter)
         {
-            //sides,negative left | up and down | in and out
-
             if (config.storageLargeContainers == 1)
             {
                 AddStorageBox(copter, storageLargePrefab, new Vector3(0.0f, 0.07f, -1.05f), Quaternion.Euler(0, 180f, 0));
@@ -481,20 +529,6 @@ namespace Oxide.Plugins
             });
         }
 
-        private void AddLock(BaseEntity entity)
-        {
-            var codeLock = GameManager.server.CreateEntity(lockPrefab) as CodeLock;
-            if (codeLock == null)
-                return;
-
-            codeLock.Spawn();
-            codeLock.code = "789456789123";
-            codeLock.SetParent(entity, entity.GetSlotAnchorName(BaseEntity.Slot.Lock));
-            codeLock.transform.localScale += new Vector3(-50, -50, -50);
-            entity.SetSlot(BaseEntity.Slot.Lock, codeLock);
-            codeLock.SetFlag(BaseEntity.Flags.Locked, true);
-        }
-
         private void SetupAutoTurret(AutoTurret turret)
         {
             turret.pickup.enabled = false;
@@ -516,7 +550,7 @@ namespace Oxide.Plugins
             var player = BasePlayer.FindByID(copter.OwnerID);
             if (player != null)
             {
-                turret.authorizedPlayers.Add(new ProtoBuf.PlayerNameID()
+                turret.authorizedPlayers.Add(new ProtoBuf.PlayerNameID
                 {
                     userid = player.userID,
                     username = player.displayName,
@@ -549,28 +583,6 @@ namespace Oxide.Plugins
                 // Spawning the switch at the desired world position and then parenting it, allows it to render correctly initially.
                 electricSwitch.SetParent(turret, worldPositionStays: true);
             }
-
-            RunWire(electricSwitch, 0, turret, 0, 12);
-        }
-
-        // https://umod.org/community/rust/12554-trouble-spawning-a-switch?page=1#post-5
-        private void RunWire(IOEntity source, int s_slot, IOEntity destination, int d_slot, int power = 0)
-        {
-            destination.inputs[d_slot].connectedTo.Set(source);
-            destination.inputs[d_slot].connectedToSlot = s_slot;
-            destination.inputs[d_slot].connectedTo.Init();
-            source.outputs[s_slot].connectedTo.Set(destination);
-            source.outputs[s_slot].connectedToSlot = d_slot;
-            source.outputs[s_slot].connectedTo.Init();
-            source.MarkDirtyForceUpdateOutputs();
-            if (power > 0)
-            {
-                destination.UpdateHasPower(power, 0);
-                source.UpdateHasPower(power, 0);
-            }
-
-            source.SendNetworkUpdate();
-            destination.SendNetworkUpdate();
         }
 
         private void DestroyGroundComp(BaseEntity ent)
@@ -591,35 +603,74 @@ namespace Oxide.Plugins
         {
             if (copterDefaults != null)
             {
-                // Allow setting fuelPerSec to negative to make the plugin do nothing.
-                // Don't update fuelPerSec if not currently the configured value, because another plugin probably updated it.
-                if (config.fuelPerSec >= 0 && copter.fuelPerSec == config.fuelPerSec)
+                var proposedFuelPerSec = copterDefaults.fuelPerSec;
+                if (config.fuelPerSec >= 0 && CanModifyFuelPerSec(copter, ref proposedFuelPerSec))
                 {
-                    copter.fuelPerSec = copterDefaults.fuelPerSecond;
+                    copter.fuelPerSec = proposedFuelPerSec;
                 }
 
-                copter.liftFraction = copterDefaults.liftFraction;
-                copter.torqueScale = copterDefaults.torqueScale;
+                var proposedLiftFraction = copterDefaults.liftFraction;
+                if (config.liftFraction >= 0 && CanModifyLiftFraction(copter, ref proposedLiftFraction))
+                {
+                    copter.liftFraction = proposedLiftFraction;
+                }
+
+                if (config.torqueScalePitch >= 0)
+                {
+                    copter.torqueScale.x = copterDefaults.torqueScale.x;
+                }
+
+                if (config.torqueScaleYaw >= 0)
+                {
+                    copter.torqueScale.y = copterDefaults.torqueScale.y;
+                }
+
+                if (config.torqueScaleRoll >= 0)
+                {
+                    copter.torqueScale.z = copterDefaults.torqueScale.z;
+                }
             }
 
             if (removeStorage)
             {
                 foreach (var child in copter.children.FindAll(child => child.name == storagePrefab || child.name == storageLargePrefab || child.name == autoturretPrefab))
+                {
                     child.Kill();
+                }
             }
         }
 
         private void ModifyMiniCopter(Minicopter copter)
         {
-            // Allow setting fuelPerSec to negative to make the plugin do nothing.
-            // Don't update fuelPerSec if not currently set to vanilla default, because another plugin probably updated it.
-            if (config.fuelPerSec >= 0 && copterDefaults != null && copter.fuelPerSec == copterDefaults.fuelPerSecond)
+            if (copterDefaults != null)
             {
-                copter.fuelPerSec = config.fuelPerSec;
-            }
+                var proposedFuelPerSec = config.fuelPerSec;
+                if (config.fuelPerSec >= 0 && CanModifyFuelPerSec(copter, ref proposedFuelPerSec))
+                {
+                    copter.fuelPerSec = proposedFuelPerSec;
+                }
 
-            copter.liftFraction = config.liftFraction;
-            copter.torqueScale = new Vector3(config.torqueScalePitch, config.torqueScaleYaw, config.torqueScaleRoll);
+                var proposedLiftFraction = config.liftFraction;
+                if (config.liftFraction >= 0 && CanModifyLiftFraction(copter, ref proposedLiftFraction))
+                {
+                    copter.liftFraction = proposedLiftFraction;
+                }
+
+                if (config.torqueScalePitch >= 0)
+                {
+                    copter.torqueScale.x = config.torqueScalePitch;
+                }
+
+                if (config.torqueScaleYaw >= 0)
+                {
+                    copter.torqueScale.y = config.torqueScaleYaw;
+                }
+
+                if (config.torqueScaleRoll >= 0)
+                {
+                    copter.torqueScale.z = config.torqueScaleRoll;
+                }
+            }
 
             // Override the inertia tensor since if the server had rebooted while there were attachments, it would have been snapshotted to an unreasonable value.
             // This is the vanilla amount while the prevent building object is inactive.
@@ -715,10 +766,34 @@ namespace Oxide.Plugins
 
         private bool CanModifyMiniCopter(Minicopter copter)
         {
-            var hookResult = Interface.CallHook("OnMiniCopterOptions", copter);
+            var hookResult = ExposedHooks.OnMiniCopterOptions(copter);
             if (hookResult is bool && !(bool)hookResult)
                 return false;
 
+            return true;
+        }
+
+        private bool CanModifyFuelPerSec(Minicopter copter, ref float proposedFuelPerSec)
+        {
+            stageFuelPerSec[0] = proposedFuelPerSec;
+
+            var hookResult = ExposedHooks.OnMinicopterFuelPerSecChange(this, copter, stageFuelPerSec);
+            if (hookResult is bool && !(bool)hookResult)
+                return false;
+
+            proposedFuelPerSec = stageFuelPerSec[0];
+            return true;
+        }
+
+        private bool CanModifyLiftFraction(Minicopter copter, ref float proposedLiftFraction)
+        {
+            stageLiftFraction[0] = proposedLiftFraction;
+
+            var hookResult = ExposedHooks.OnMinicopterLiftFractionChange(this, copter, stageLiftFraction);
+            if (hookResult is bool && !(bool)hookResult)
+                return false;
+
+            proposedLiftFraction = stageLiftFraction[0];
             return true;
         }
 
@@ -746,7 +821,7 @@ namespace Oxide.Plugins
             //Puts($"Defaults for copters saved as \nfuelPerSecond = {copter.fuelPerSec}\nliftFraction = {copter.liftFraction}\ntorqueScale = {copter.torqueScale}");
             copterDefaults = new MiniCopterDefaults
             {
-                fuelPerSecond = copter.fuelPerSec,
+                fuelPerSec = copter.fuelPerSec,
                 liftFraction = copter.liftFraction,
                 torqueScale = copter.torqueScale
             };
@@ -758,7 +833,7 @@ namespace Oxide.Plugins
 
         private class MiniCopterDefaults
         {
-            public float fuelPerSecond;
+            public float fuelPerSec;
             public float liftFraction;
             public Vector3 torqueScale;
         }
@@ -767,7 +842,7 @@ namespace Oxide.Plugins
         {
             // Populated with Rust defaults.
             [JsonProperty("Fuel per Second")]
-            public float fuelPerSec = 0.25f;
+            public float fuelPerSec = 0.5f;
 
             [JsonProperty("Lift Fraction")]
             public float liftFraction = 0.25f;
