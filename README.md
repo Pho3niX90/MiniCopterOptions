@@ -33,7 +33,6 @@ The default configuration mimics the default Rust values.
   "Large Storage Size (Max 48)": 48,
   "Seconds to pause flyhack when dismount from heli.": 1,
   "Add auto turret to heli": false,
-  "Auto turret uses battery": true,
   "Auto turret targets players": true,
   "Auto turret targets NPCs": true,
   "Auto turret targets animals": true,

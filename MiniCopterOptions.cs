@@ -20,7 +20,6 @@ namespace Oxide.Plugins
         private readonly string autoturretPrefab = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
         private readonly string searchLightPrefab = "assets/prefabs/deployable/search light/searchlight.deployed.prefab";
-        private readonly string batteryPrefab = "assets/prefabs/deployable/playerioents/batteries/smallrechargablebattery.deployed.prefab";
         private readonly string flasherBluePrefab = "assets/prefabs/deployable/playerioents/lights/flasherlight/electric.flasherlight.deployed.prefab";
         private readonly string lockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
         private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
@@ -169,13 +168,6 @@ namespace Oxide.Plugins
 
         private void OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player)
         {
-            if (IsBatteryEnabled())
-            {
-                // Do nothing since the switch is supposed to be wired into the turret,
-                // so the game should handle this automatically.
-                return;
-            }
-
             var turret = electricSwitch.GetParentEntity() as AutoTurret;
             if (turret == null)
                 return;
@@ -271,28 +263,6 @@ namespace Oxide.Plugins
             {
                 player.PauseFlyHackDetection(config.flyHackPause);
             }
-        }
-
-        private object CanMountEntity(BasePlayer player, BaseMountable entity)
-        {
-            if (!(entity is Minicopter) && !(entity.GetParentEntity() is Minicopter))
-                return null;
-
-            if (!IsBatteryEnabled())
-                return null;
-
-            var mini = entity.GetParentEntity() as Minicopter;
-            if (mini != null)
-            {
-                var battery = GetBatteryConnected(mini);
-                if (battery != null)
-                {
-                    player.ChatMessage(string.Format(GetMsg("Err - Diconnect Battery", player.UserIDString), battery.GetDisplayName()));
-                    return False;
-                }
-            }
-
-            return null;
         }
 
         private void OnItemDeployed(Deployer deployer, StorageContainer container, BaseLock baseLock)
@@ -404,10 +374,7 @@ namespace Oxide.Plugins
         private void AddSideStorageBoxes(Minicopter copter)
         {
             AddStorageBox(copter, storagePrefab, new Vector3(0.6f, 0.24f, -0.35f));
-            if (!IsBatteryEnabled())
-            {
-                AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
-            }
+            AddStorageBox(copter, storagePrefab, new Vector3(-0.6f, 0.24f, -0.35f));
         }
 
         private void AddStorageBox(Minicopter copter, string prefab, Vector3 position)
@@ -560,33 +527,6 @@ namespace Oxide.Plugins
             AddSwitch(turret);
         }
 
-        private bool IsBatteryEnabled() => config.autoturretBattery && config.autoturret;
-
-        private void SetupBattery(ElectricBattery battery)
-        {
-            battery.maxOutput = 12;
-            battery.pickup.enabled = false;
-            DestroyGroundComp(battery);
-            DestroyColliders(battery);
-        }
-
-        private ElectricBattery AddBattery(Minicopter copter)
-        {
-            var batteryPosition = copter.transform.TransformPoint(new Vector3(-0.7f, 0.2f, -0.2f));
-            var batteryRotation = copter.transform.rotation;
-
-            var battery = GameManager.server.CreateEntity(batteryPrefab, batteryPosition, batteryRotation) as ElectricBattery;
-            if (battery == null)
-                return null;
-
-            SetupBattery(battery);
-            battery.Spawn();
-            battery.SetParent(copter, worldPositionStays: true);
-            SetupInvincibility(battery);
-
-            return battery;
-        }
-
         private void SetupSwitch(ElectricSwitch electricSwitch)
         {
             electricSwitch.pickup.enabled = false;
@@ -596,12 +536,6 @@ namespace Oxide.Plugins
 
         private void AddSwitch(AutoTurret turret)
         {
-            ElectricBattery battery = null;
-            if (IsBatteryEnabled())
-            {
-                battery = AddBattery(turret.GetParentEntity() as Minicopter);
-            }
-
             var switchPosition = turret.transform.TransformPoint(new Vector3(0f, -0.65f, 0.325f));
             var switchRotation = turret.transform.rotation;
 
@@ -616,15 +550,7 @@ namespace Oxide.Plugins
                 electricSwitch.SetParent(turret, worldPositionStays: true);
             }
 
-            if (!IsBatteryEnabled())
-            {
-                RunWire(electricSwitch, 0, turret, 0, 12);
-            }
-            else if (battery != null)
-            {
-                RunWire(battery, 0, electricSwitch, 0);
-                RunWire(electricSwitch, 0, turret, 0);
-            }
+            RunWire(electricSwitch, 0, turret, 0, 12);
         }
 
         // https://umod.org/community/rust/12554-trouble-spawning-a-switch?page=1#post-5
@@ -659,19 +585,6 @@ namespace Oxide.Plugins
             {
                 UnityEngine.Object.DestroyImmediate(mesh);
             }
-        }
-
-        private void DestroyColliders(BaseEntity ent)
-        {
-            foreach (var collider in ent.GetComponentsInChildren<Collider>())
-            {
-                UnityEngine.Object.DestroyImmediate(collider);
-            }
-        }
-
-        private IOEntity GetBatteryConnected(Minicopter ent)
-        {
-            return ent.GetComponentInChildren<ElectricBattery>()?.inputs[0]?.connectedTo.ioEnt;
         }
 
         private void RestoreMiniCopter(Minicopter copter, bool removeStorage = false)
@@ -721,7 +634,7 @@ namespace Oxide.Plugins
                 {
                     SetupAutoTurret(turret);
 
-                    // Setup existing switch, but don't add a new one since that may add a duplicate battery.
+                    // Setup existing switch, but don't add a new one.
                     var turretSwitch = turret.GetComponentInChildren<ElectricSwitch>();
                     if (turretSwitch != null)
                     {
@@ -760,17 +673,6 @@ namespace Oxide.Plugins
                         AddRearStorageBox(copter);
                         AddSideStorageBoxes(copter);
                         break;
-                }
-            }
-
-            if (IsBatteryEnabled())
-            {
-                // Setup battery if present, but don't add a new one since that's handled when adding a switch.
-                var battery = copter.GetComponentInChildren<ElectricBattery>();
-                if (battery != null)
-                {
-                    SetupBattery(battery);
-                    SetupInvincibility(battery);
                 }
             }
 
@@ -911,9 +813,6 @@ namespace Oxide.Plugins
             [JsonProperty("Add auto turret to heli")]
             public bool autoturret = false;
 
-            [JsonProperty("Auto turret uses battery")]
-            public bool autoturretBattery = true;
-
             [JsonProperty("Auto turret targets players")]
             public bool autoTurretTargetsPlayers = true;
 
@@ -1042,20 +941,5 @@ namespace Oxide.Plugins
         #endregion
 
         #endregion
-
-        #region Languages
-
-        protected override void LoadDefaultMessages()
-        {
-            lang.RegisterMessages(new Dictionary<string, string> {
-                ["Err - Diconnect Battery"] = "First disconnect battery input from {0}",
-                ["Err - Can only push minicopter"] = "You have to look at a minicopter. Pushing {0} not allowed"
-            }, this);
-        }
-
-        string GetMsg(string key, string userIdString) => lang.GetMessage(key, this, userIdString);
-
-        #endregion
-
     }
 }
