@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.5.0")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.5.1")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     internal class MiniCopterOptions : CovalencePlugin
     {
@@ -27,6 +27,8 @@ namespace Oxide.Plugins
         private const string resizableLootPanelName = "generic_resizable";
         private const int MinStorageCapacity = 6;
         private const int MaxStorageCapacity = 48;
+
+        private static readonly Vector3 TurretSwitchPosition = new Vector3(0, 0.36f, 0.32f);
 
         private readonly object False = false;
 
@@ -566,11 +568,22 @@ namespace Oxide.Plugins
             electricSwitch.pickup.enabled = false;
             DestroyMeshCollider(electricSwitch);
             DestroyGroundComp(electricSwitch);
+
+            if (electricSwitch.HasParent())
+            {
+                var transform = electricSwitch.transform;
+                if (transform.localPosition != TurretSwitchPosition)
+                {
+                    transform.localPosition = TurretSwitchPosition;
+                    electricSwitch.InvalidateNetworkCache();
+                    electricSwitch.SendNetworkUpdate_Position();
+                }
+            }
         }
 
         private void AddSwitch(AutoTurret turret)
         {
-            var switchPosition = turret.transform.TransformPoint(new Vector3(0f, -0.65f, 0.325f));
+            var switchPosition = turret.transform.TransformPoint(TurretSwitchPosition);
             var switchRotation = turret.transform.rotation;
 
             var electricSwitch = GameManager.server.CreateEntity(switchPrefab, switchPosition, switchRotation) as ElectricSwitch;
