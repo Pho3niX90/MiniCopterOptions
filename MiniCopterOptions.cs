@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.5.1")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.5.2")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     internal class MiniCopterOptions : CovalencePlugin
     {
@@ -22,13 +22,20 @@ namespace Oxide.Plugins
         private readonly string switchPrefab = "assets/prefabs/deployable/playerioents/simpleswitch/switch.prefab";
         private readonly string searchLightPrefab = "assets/prefabs/deployable/search light/searchlight.deployed.prefab";
         private readonly string flasherBluePrefab = "assets/prefabs/deployable/playerioents/lights/flasherlight/electric.flasherlight.deployed.prefab";
-        private readonly string spherePrefab = "assets/prefabs/visualization/sphere.prefab";
 
         private const string resizableLootPanelName = "generic_resizable";
         private const int MinStorageCapacity = 6;
         private const int MaxStorageCapacity = 48;
 
-        private static readonly Vector3 TurretSwitchPosition = new Vector3(0, 0.36f, 0.32f);
+        private static readonly Vector3 TurretPosition = new(0, 0, 2.47f);
+        private static readonly Vector3 TurretSwitchPosition = new(0, 0.36f, 0.32f);
+
+        private static readonly Vector3 SearchLightPosition = new(0, 0.24f, 1.8f);
+        private static readonly Quaternion SearchLightRotation = Quaternion.Euler(-20, 180, 180);
+        private static readonly Vector3 SearchLightTransformScale = Vector3.one * 0.1f;
+
+        private static readonly Vector3 TailLightPosition = new(0, 1.2f, -2.0f);
+        private static readonly Quaternion TailLightRotation = Quaternion.Euler(33, 180, 0);
 
         private readonly object False = false;
 
@@ -89,7 +96,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private void OnServerInitialized(bool init)
+        private void OnServerInitialized()
         {
             StoreMiniCopterDefaults();
 
@@ -105,18 +112,14 @@ namespace Oxide.Plugins
 
             foreach (var copter in BaseNetworkable.serverEntities.OfType<Minicopter>())
             {
-                if (init)
+                foreach (var meshCollider in copter.GetComponentsInChildren<MeshCollider>())
                 {
-                    // Destroy problematic components immediately on server boot, since OnEntitySpawned will run changes on a delay.
-                    foreach (var meshCollider in copter.GetComponentsInChildren<MeshCollider>())
-                    {
-                        UnityEngine.Object.DestroyImmediate(meshCollider);
-                    }
+                    UnityEngine.Object.DestroyImmediate(meshCollider);
+                }
 
-                    foreach (var groundWatch in copter.GetComponentsInChildren<GroundWatch>())
-                    {
-                        UnityEngine.Object.DestroyImmediate(groundWatch);
-                    }
+                foreach (var groundWatch in copter.GetComponentsInChildren<GroundWatch>())
+                {
+                    UnityEngine.Object.DestroyImmediate(groundWatch);
                 }
 
                 OnEntitySpawned(copter);
@@ -147,14 +150,12 @@ namespace Oxide.Plugins
 
         private void OnEntitySpawned(Minicopter copter)
         {
-            // Only add storage on spawn so we don't stack or mess with
-            // existing player storage containers.
             ScheduleModifyMiniCopter(copter);
         }
 
         private void OnEntityKill(BaseNetworkable entity)
         {
-            if (!config.dropStorage || !(entity is Minicopter))
+            if (!config.dropStorage || entity is not Minicopter)
                 return;
 
             var containers = entity.GetComponentsInChildren<StorageContainer>();
@@ -201,14 +202,14 @@ namespace Oxide.Plugins
                 return null;
 
             var mini = turret.GetParentEntity() as Minicopter;
-            if ((object)mini == null)
+            if (mini == null)
                 return null;
 
             if (!config.autoTurretTargetsAnimals && target is BaseAnimalNPC)
                 return False;
 
             var basePlayer = target as BasePlayer;
-            if ((object)basePlayer != null)
+            if (basePlayer != null)
             {
                 if (!config.autoTurretTargetsNPCs && basePlayer.IsNpc)
                     return False;
@@ -241,21 +242,14 @@ namespace Oxide.Plugins
 
             foreach (var child in mini.children)
             {
-                var sphere = child as SphereEntity;
-                if ((object)sphere == null)
+                var light = child as SearchLight;
+                if (light == null)
                     continue;
 
-                foreach (var grandChild in sphere.children)
-                {
-                    var light = grandChild as SearchLight;
-                    if ((object)light == null)
-                        continue;
+                light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
 
-                    light.SetFlag(IOEntity.Flag_HasPower, !light.IsPowered());
-
-                    // Prevent other lights from toggling.
-                    return False;
-                }
+                // Prevent other lights from toggling.
+                return False;
             }
 
             return null;
@@ -275,7 +269,7 @@ namespace Oxide.Plugins
                 return;
 
             var parent = container.GetParentEntity();
-            if (parent == null || !(parent is Minicopter))
+            if (parent == null || parent is not Minicopter)
                 return;
 
             if (container.PrefabName != storageLargePrefab)
@@ -471,7 +465,7 @@ namespace Oxide.Plugins
 
         private void AddTailLight(Minicopter copter)
         {
-            var tailLight = GameManager.server.CreateEntity(flasherBluePrefab, new Vector3(0, 1.2f, -2.0f), Quaternion.Euler(33, 180, 0)) as FlasherLight;
+            var tailLight = GameManager.server.CreateEntity(flasherBluePrefab, TailLightPosition, TailLightRotation) as FlasherLight;
             if (tailLight == null)
                 return;
 
@@ -479,12 +473,6 @@ namespace Oxide.Plugins
             tailLight.SetParent(copter);
             tailLight.Spawn();
             SetupInvincibility(tailLight);
-        }
-
-        private void SetupSphereEntity(SphereEntity sphereEntity)
-        {
-            sphereEntity.EnableSaving(true);
-            sphereEntity.EnableGlobalBroadcast(false);
         }
 
         private void SetupSearchLight(SearchLight searchLight)
@@ -496,39 +484,19 @@ namespace Oxide.Plugins
 
         private void AddSearchLight(Minicopter copter)
         {
-            var sphereEntity = GameManager.server.CreateEntity(spherePrefab, new Vector3(0, -100, 0), Quaternion.identity) as SphereEntity;
-            if (sphereEntity == null)
-                return;
-
-            SetupSphereEntity(sphereEntity);
-            sphereEntity.SetParent(copter);
-            sphereEntity.Spawn();
-
-            var searchLight = GameManager.server.CreateEntity(searchLightPrefab, sphereEntity.transform.position) as SearchLight;
+            var searchLight = GameManager.server.CreateEntity(searchLightPrefab, SearchLightPosition, SearchLightRotation) as SearchLight;
             if (searchLight == null)
                 return;
 
+            searchLight.transform.localScale = SearchLightTransformScale;
+            searchLight.networkEntityScale = true;
+            searchLight.SetParent(copter);
             SetupSearchLight(searchLight);
             searchLight.Spawn();
+
             SetupInvincibility(searchLight);
             searchLight.SetFlag(BaseEntity.Flags.Reserved5, true);
             searchLight.SetFlag(BaseEntity.Flags.Busy, true);
-            searchLight.SetParent(sphereEntity);
-            searchLight.transform.localPosition = Vector3.zero;
-            searchLight.transform.localRotation = Quaternion.Euler(-20, 180, 180);
-
-            sphereEntity.currentRadius = 0.1f;
-            sphereEntity.lerpRadius = 0.1f;
-            sphereEntity.UpdateScale();
-            sphereEntity.SendNetworkUpdateImmediate();
-
-            timer.Once(3f, () =>
-            {
-                if (sphereEntity != null)
-                {
-                    sphereEntity.transform.localPosition = new Vector3(0, 0.24f, 1.8f);
-                }
-            });
         }
 
         private void SetupAutoTurret(AutoTurret turret)
@@ -541,7 +509,7 @@ namespace Oxide.Plugins
 
         private void AddTurret(Minicopter copter)
         {
-            var turret = GameManager.server.CreateEntity(autoturretPrefab, new Vector3(0, 0, 2.47f)) as AutoTurret;
+            var turret = GameManager.server.CreateEntity(autoturretPrefab, TurretPosition) as AutoTurret;
             if (turret == null)
                 return;
 
@@ -583,8 +551,9 @@ namespace Oxide.Plugins
 
         private void AddSwitch(AutoTurret turret)
         {
-            var switchPosition = turret.transform.TransformPoint(TurretSwitchPosition);
-            var switchRotation = turret.transform.rotation;
+            var turretTransform = turret.transform;
+            var switchPosition = turretTransform.TransformPoint(TurretSwitchPosition);
+            var switchRotation = turretTransform.rotation;
 
             var electricSwitch = GameManager.server.CreateEntity(switchPrefab, switchPosition, switchRotation) as ElectricSwitch;
             if (electricSwitch != null)
@@ -746,14 +715,23 @@ namespace Oxide.Plugins
                 var searchLight = copter.GetComponentInChildren<SearchLight>();
                 if (searchLight != null)
                 {
-                    SetupSearchLight(searchLight);
-                    SetupInvincibility(searchLight);
-
+                    // Remove the legacy sphere used to resize the search light.
                     var sphereEntity = searchLight.GetParentEntity() as SphereEntity;
                     if (sphereEntity != null)
                     {
-                        SetupSphereEntity(sphereEntity);
+                        searchLight.SetParent(copter, worldPositionStays: true, sendImmediate: true);
+                        sphereEntity.Kill();
                     }
+
+                    if (!searchLight.networkEntityScale || searchLight.transform.localScale != SearchLightTransformScale)
+                    {
+                        searchLight.transform.localScale = SearchLightTransformScale;
+                        searchLight.networkEntityScale = true;
+                        searchLight.SendNetworkUpdate();
+                    }
+
+                    SetupSearchLight(searchLight);
+                    SetupInvincibility(searchLight);
                 }
                 else
                 {
@@ -812,7 +790,7 @@ namespace Oxide.Plugins
 
         private void ScheduleModifyMiniCopter(Minicopter copter)
         {
-            // Delay to allow plugins to detect the Mini and save its ID so they can block modification via hooks.
+            // Delay to allow plugins to detect the Mini and save its ID, so they can block modification via hooks.
             NextTick(() =>
             {
                 if (copter == null || copter.IsDestroyed)
@@ -920,7 +898,7 @@ namespace Oxide.Plugins
             public bool lightTail = false;
         }
 
-        private Configuration GetDefaultConfig() => new Configuration();
+        private Configuration GetDefaultConfig() => new();
 
         #region Configuration Helpers
 
