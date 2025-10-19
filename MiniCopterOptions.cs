@@ -757,8 +757,7 @@ namespace Oxide.Plugins
 
         private bool CanModifyMiniCopter(Minicopter copter)
         {
-            var hookResult = ExposedHooks.OnMiniCopterOptions(copter);
-            if (hookResult is bool && !(bool)hookResult)
+            if (ExposedHooks.OnMiniCopterOptions(copter) is false)
                 return false;
 
             return true;
@@ -768,8 +767,7 @@ namespace Oxide.Plugins
         {
             stageFuelPerSec[0] = proposedFuelPerSec;
 
-            var hookResult = ExposedHooks.OnMinicopterFuelPerSecChange(this, copter, stageFuelPerSec);
-            if (hookResult is bool && !(bool)hookResult)
+            if (ExposedHooks.OnMinicopterFuelPerSecChange(this, copter, stageFuelPerSec) is false)
                 return false;
 
             proposedFuelPerSec = stageFuelPerSec[0];
@@ -780,8 +778,7 @@ namespace Oxide.Plugins
         {
             stageLiftFraction[0] = proposedLiftFraction;
 
-            var hookResult = ExposedHooks.OnMinicopterLiftFractionChange(this, copter, stageLiftFraction);
-            if (hookResult is bool && !(bool)hookResult)
+            if (ExposedHooks.OnMinicopterLiftFractionChange(this, copter, stageLiftFraction) is false)
                 return false;
 
             proposedLiftFraction = stageLiftFraction[0];
@@ -870,7 +867,7 @@ namespace Oxide.Plugins
 
             [JsonProperty("Large Storage Size (Max 42)")]
             public int largeStorageSizeDeprecated {
-                set { largeStorageSize = value; }
+                set => largeStorageSize = value;
             }
 
             [JsonProperty("Seconds to pause flyhack when dismount from heli.")]
