@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.5.2")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.5.3")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     internal class MiniCopterOptions : CovalencePlugin
     {
@@ -287,6 +287,7 @@ namespace Oxide.Plugins
             if (plugin.Name == nameof(MiniCopterOptions)
                 || copterDefaults == null
                 || config.fuelPerSec < 0
+                || IsFuelSystemLocked(copter)
                 || !CanModifyMiniCopter(copter))
                 return;
 
@@ -763,8 +764,18 @@ namespace Oxide.Plugins
             return true;
         }
 
+        private bool IsFuelSystemLocked(Minicopter copter)
+        {
+            return copter.GetFuelSystem() is EntityFuelSystem fuelSystem
+                   && fuelSystem.GetFuelContainer() is { } container
+                   && container.IsLocked();
+        }
+
         private bool CanModifyFuelPerSec(Minicopter copter, ref float proposedFuelPerSec)
         {
+            if (IsFuelSystemLocked(copter))
+                return false;
+
             stageFuelPerSec[0] = proposedFuelPerSec;
 
             if (ExposedHooks.OnMinicopterFuelPerSecChange(this, copter, stageFuelPerSec) is false)
