@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Mini-Copter Options", "Pho3niX90", "2.5.3")]
+    [Info("Mini-Copter Options", "Pho3niX90", "2.5.5")]
     [Description("Provide a number of additional options for Mini-Copters, including storage and seats.")]
     internal class MiniCopterOptions : CovalencePlugin
     {
@@ -41,6 +41,7 @@ namespace Oxide.Plugins
 
         private Configuration config;
         private MiniCopterDefaults copterDefaults;
+        private readonly HashSet<DroppedItemContainer> droppedItemContainers = new();
         private bool lastRanAtNight;
         private int setupTimeHooksAttempts;
         private TOD_Sky time;
@@ -153,22 +154,48 @@ namespace Oxide.Plugins
             ScheduleModifyMiniCopter(copter);
         }
 
-        private void OnEntityKill(BaseNetworkable entity)
+        private void OnEntityKill(BaseCombatEntity entity)
         {
+            if (entity is DroppedItemContainer droppedContainer)
+            {
+                droppedItemContainers.Remove(droppedContainer);
+                return;
+            }
+
             if (!config.dropStorage || entity is not Minicopter)
                 return;
 
             var containers = entity.GetComponentsInChildren<StorageContainer>();
             foreach (var container in containers)
             {
-                container.DropItems();
+                if (DropItems(container) is { } droppedItemContainer)
+                {
+                    droppedItemContainers.Add(droppedItemContainer);
+                }
             }
 
             var turrets = entity.GetComponentsInChildren<AutoTurret>();
             foreach (var turret in turrets)
             {
-                turret.DropItems();
+                if (DropItems(turret) is { } droppedItemContainer)
+                {
+                    droppedItemContainers.Add(droppedItemContainer);
+                }
             }
+        }
+
+        // Allow dropped item containers to be looted (by anyone) if they were dropped by this plugin.
+        // Note: This approach is a little bit hacky, might be better to harmony patch OnStartBeingLooted.
+        // This won't work if the plugin is reloaded (or the server is restarted) while the dropped item container is
+        // still around, but that's probably an acceptable edge case (rare).
+        private void CanLootEntity(BasePlayer player, DroppedItemContainer droppedItemContainer)
+        {
+            if (!droppedItemContainers.Contains(droppedItemContainer)
+                || player.userID == droppedItemContainer.playerSteamID
+                || !player.InSafeZone() && !droppedItemContainer.InSafeZone())
+                return;
+
+            droppedItemContainer.playerSteamID = player.userID;
         }
 
         private void OnSwitchToggled(ElectricSwitch electricSwitch, BasePlayer player)
@@ -332,6 +359,24 @@ namespace Oxide.Plugins
         #endregion
 
         #region Helpers
+
+        // Copy of StorageContainer.DropItems, but returns the dropped item container if not dropped individually.
+        // The `initiator` logic was also removed since it's only relevant to loot containers (e.g., loot barrels).
+        public static DroppedItemContainer DropItems(IItemContainerEntity containerEntity)
+        {
+            var itemContainer = containerEntity.inventory;
+            if (itemContainer?.itemList == null || itemContainer.itemList.Count == 0 || !containerEntity.DropsLoot)
+                return null;
+
+            if (containerEntity.ShouldDropItemsIndividually() || (itemContainer.itemList.Count == 1 && !containerEntity.DropFloats))
+            {
+                DropUtil.DropItems(itemContainer, containerEntity.GetDropPosition());
+                return null;
+            }
+
+            var prefab = containerEntity.DropFloats ? "assets/prefabs/misc/item drop/item_drop_buoyant.prefab" : "assets/prefabs/misc/item drop/item_drop.prefab";
+            return itemContainer.Drop(prefab, containerEntity.GetDropPosition(), containerEntity.Transform.rotation, containerEntity.DestroyLootPercent);
+        }
 
         private bool IsNight()
         {
@@ -521,11 +566,8 @@ namespace Oxide.Plugins
             var player = BasePlayer.FindByID(copter.OwnerID);
             if (player != null)
             {
-                turret.authorizedPlayers.Add(new ProtoBuf.PlayerNameID
-                {
-                    userid = player.userID,
-                    username = player.displayName,
-                });
+                turret.authorizedPlayers.Add(player.userID);
+                turret.UpdateMaxAuthCapacity();
                 turret.SendNetworkUpdate();
             }
 
